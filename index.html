@@ -227,7 +227,7 @@ main{padding:12px;max-width:680px;margin:0 auto;padding-bottom:90px}
 
 const STORAGE_KEY = 'shopping_app_v3';
 const SUPABASE_URL = 'https://hbyzsbypovmpdofvxqpy.supabase.co';
-const SUPABASE_KEY = 'sb_publishable_HM-9spX7SyVyRUllzob1Ag_QTdQ9fDX';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImhieXpzYnlwb3ZtcGRvZnZ4cXB5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM4MzAzMDgsImV4cCI6MjA4OTQwNjMwOH0.om6LU42kR20OhVLFLnSueFfmlXMYZjt6T6lzWfWIKzo';
 const USER_ID = 'main';
 const DEFAULT_CATEGORIES = ['\u05DE\u05D8\u05D1\u05D7','\u05EA\u05D1\u05DC\u05D9\u05E0\u05D9\u05DD','\u05E0\u05D9\u05E7\u05D9\u05D5\u05DF','\u05D0\u05E4\u05D9\u05D9\u05D4','\u05DE\u05E7\u05E8\u05E8 \u05D5\u05E7\u05E4\u05D0','\u05EA\u05D9\u05E0\u05D5\u05E7','\u05D0\u05DE\u05D1\u05D8\u05D9\u05D4','\u05D7\u05D3\u05E8 \u05DB\u05D1\u05D9\u05E1\u05D4','\u05D0\u05D7\u05E8'];
 
@@ -306,8 +306,12 @@ async function doPush() {
       body: JSON.stringify({user_id: USER_ID, data: JSON.parse(raw), updated_at: new Date().toISOString()})
     });
     if (res.ok || res.status === 201) { lastPushedHash = h; showSyncStatus('ok'); }
-    else { showSyncStatus('error'); }
-  } catch(e) { showSyncStatus('error'); }
+    else {
+      const txt = await res.text();
+      console.error('Supabase push failed:', res.status, txt);
+      showSyncStatus('error');
+    }
+  } catch(e) { console.error('Supabase push error:', e); showSyncStatus('error'); }
   finally { syncPending = false; }
 }
 
@@ -323,7 +327,7 @@ async function doPull() {
     lastSeenAt = rows[0].updated_at;
     localStorage.setItem(STORAGE_KEY, remoteStr);
     return true;
-  } catch(e) { return false; }
+  } catch(e) { console.error('Supabase pull error:', e); return false; }
 }
 
 function startPolling() {
