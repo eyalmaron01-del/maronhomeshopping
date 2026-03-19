@@ -278,10 +278,12 @@ function showSyncStatus(s) {
 async function sbFetch(path, opts) {
   opts = opts || {};
   return fetch(SUPABASE_URL + path, Object.assign({}, opts, {
+    mode: 'cors',
     headers: Object.assign({
       'apikey': SUPABASE_KEY,
       'Authorization': 'Bearer ' + SUPABASE_KEY,
-      'Content-Type': 'application/json'
+      'Content-Type': 'application/json',
+      'Accept': 'application/json'
     }, opts.headers || {})
   }));
 }
