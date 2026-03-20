@@ -780,7 +780,7 @@ function shareWhatsApp(){
   const list=getCurrentList();
   const needItems=(list.items||[]).filter(i=>i.status==='need');
   if(!needItems.length){showToast('\u05D0\u05D9\u05DF \u05E4\u05E8\u05D9\u05D8\u05D9\u05DD \u05DC\u05E7\u05E0\u05D5\u05EA');return;}
-  const lines=needItems.map(i=>i.name+(i.needQty&&i.needQty>1?' x'+i.needQty:'')+(i.qty?' ('+i.qty+')':'')+(i.note?' - '+i.note:''));
+  const lines=needItems.map(i=>i.name);
   window.open('https://wa.me/?text='+encodeURIComponent(lines.join('\n')),'_blank');
 }
 
@@ -788,7 +788,7 @@ function copyShopList(){
   const list=getCurrentList();
   const needItems=(list.items||[]).filter(i=>i.status==='need');
   if(!needItems.length){showToast('\u05D0\u05D9\u05DF \u05E4\u05E8\u05D9\u05D8\u05D9\u05DD \u05DC\u05E7\u05E0\u05D5\u05EA');return;}
-  const lines=needItems.map(i=>i.name+(i.needQty&&i.needQty>1?' x'+i.needQty:'')+(i.qty?' ('+i.qty+')':'')+(i.note?' - '+i.note:''));
+  const lines=needItems.map(i=>i.name);
   const text=lines.join('\n');
   navigator.clipboard.writeText(text).then(()=>showToast('\u05D4\u05D5\u05E2\u05EA\u05E7 \u2713')).catch(()=>showToast('\u05E9\u05D2\u05D9\u05D0\u05D4 \u05D1\u05D4\u05E2\u05EA\u05E7\u05D4'));
 }
