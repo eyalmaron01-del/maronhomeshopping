@@ -397,13 +397,22 @@ function initWelcome() {
     const contBtn = document.createElement('div');
     contBtn.className = 'welcome-option';
     contBtn.innerHTML = '<div class="welcome-option-icon">\uD83D\uDCCB</div><div><div class="welcome-option-title">\u05D4\u05DE\u05E9\u05DA \u05E8\u05E9\u05D9\u05DE\u05D4 \u05E7\u05D9\u05D9\u05DE\u05EA</div><div class="welcome-option-sub">' + last.name + ' &middot; ' + items.length + ' \u05E4\u05E8\u05D9\u05D8\u05D9\u05DD' + (needCount ? ' &middot; ' + needCount + ' \u05D7\u05E1\u05E8\u05D9\u05DD' : '') + '</div></div>';
-    contBtn.onclick = async () => {
+    contBtn.onclick = function() {
+      var s0 = getState();
+      // Use local data immediately, then sync in background
+      if (Object.keys(s0.lists||{}).length > 0) {
+        var ll = Object.values(s0.lists).sort(function(a,b){return b.createdAt-a.createdAt;});
+        s0.currentListId = ll[0].id;
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(s0));
+      }
+      hideWelcome();
+      renderAll();
+      // Pull from cloud in background
       showSyncStatus('syncing');
-      await doPull();
-      const s2 = getState();
-      const ll = Object.values(s2.lists||{}).sort((a,b)=>b.createdAt-a.createdAt);
-      if (ll.length > 0) { s2.currentListId = ll[0].id; localStorage.setItem(STORAGE_KEY, JSON.stringify(s2)); }
-      hideWelcome(); renderAll(); showSyncStatus('ok');
+      doPull().then(function(pulled) {
+        if (pulled) renderAll();
+        showSyncStatus('ok');
+      });
     };
     container.appendChild(contBtn);
   }
@@ -923,6 +932,9 @@ document.addEventListener('keydown',e=>{
   catBtn.style.cssText='background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.18);border-radius:8px;padding:7px 11px;font-family:Heebo,sans-serif;font-size:13px;font-weight:600;color:rgba(255,255,255,0.9);cursor:pointer';
   catBtn.textContent='\u2699\uFE0F';catBtn.title='\u05E0\u05D9\u05D4\u05D5\u05DC \u05E7\u05D8\u05D2\u05D5\u05E8\u05D9\u05D5\u05EA';catBtn.onclick=openCatMgr;btnGroup.appendChild(catBtn);
 })();
+
+// Set initial history state so back button can close modals
+history.replaceState({modal:null}, '');
 
 (async function init(){
   initWelcome();
