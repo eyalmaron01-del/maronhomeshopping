@@ -222,6 +222,21 @@ main{padding:12px;max-width:680px;margin:0 auto;padding-bottom:90px}
     <button class="btn-secondary" style="width:100%;margin-top:14px" onclick="closeModal('catitems-modal')">&#x05E1;&#x05D2;&#x05D5;&#x05E8;</button>
   </div>
 </div>
+<div class="modal-overlay" id="confirm-modal">
+  <div class="modal" style="padding-bottom:24px">
+    <div class="modal-handle"></div>
+    <div style="text-align:center;padding:8px 0 20px">
+      <div style="font-size:40px;margin-bottom:12px">🗑️</div>
+      <div class="modal-title" style="margin-bottom:8px">מחיקת פריט</div>
+      <div id="confirm-msg" style="font-size:15px;color:var(--text2);margin-bottom:0">האם אתה בטוח?</div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-primary" id="confirm-ok" style="background:var(--red)">כן, מחק</button>
+      <button class="btn-secondary" onclick="closeModal('confirm-modal')">ביטול</button>
+    </div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 <script>
 
@@ -574,10 +589,21 @@ function setNeedQty(itemId, qty) {
 function setFilter(f){activeFilter=f;renderAll();}
 function setCategory(c){activeCategory=c;renderAll();}
 
+function showConfirm(msg, onOk) {
+  document.getElementById('confirm-msg').textContent = msg;
+  document.getElementById('confirm-ok').onclick = function() {
+    closeModal('confirm-modal'); onOk();
+  };
+  openModal('confirm-modal');
+}
+
 function deleteItem(id) {
-  if(!confirm('\u05DC\u05DE\u05D7\u05D5\u05E7 \u05E4\u05E8\u05D9\u05D8 \u05D6\u05D4?'))return;
-  updateCurrentList(list=>{list.items=list.items.filter(i=>i.id!==id);});
-  renderAll(); showToast('\u05E4\u05E8\u05D9\u05D8 \u05E0\u05DE\u05D7\u05E7');
+  var item = getCurrentList().items.find(function(i){return i.id===id;});
+  var name = item ? item.name : 'פריט';
+  showConfirm('למחוק "' + name + '"?', function() {
+    updateCurrentList(function(list){list.items=list.items.filter(function(i){return i.id!==id;});});
+    renderAll(); showToast('פריט נמחק');
+  });
 }
 
 function populateCategorySelect(){document.getElementById('item-cat-input').innerHTML=CATEGORIES().map(c=>'<option value="'+c+'">'+c+'</option>').join('');}
@@ -668,8 +694,18 @@ function deleteList(id,e){
   saveState(s);openHistoryModal();if(getCurrentList())renderAll();
 }
 
-function openModal(id){document.getElementById(id).classList.add('open');document.body.style.overflow='hidden';}
-function closeModal(id){document.getElementById(id).classList.remove('open');document.body.style.overflow='';}
+function openModal(id){
+  document.getElementById(id).classList.add('open');
+  document.body.style.overflow='hidden';
+  // Push history state so back button closes modal
+  history.pushState({modal:id}, '');
+}
+function closeModal(id){
+  var el=document.getElementById(id);
+  if(!el||!el.classList.contains('open'))return;
+  el.classList.remove('open');
+  document.body.style.overflow='';
+}
 function closeModalOnOverlay(e,id){if(e.target===document.getElementById(id))closeModal(id);}
 
 function openShopList(){
@@ -699,6 +735,7 @@ function openShopList(){
       var nameSpan=document.createElement('span');
       nameSpan.style.cssText='flex:1;min-width:0;cursor:pointer;border-bottom:1px dashed var(--border)';
       nameSpan.textContent=i.name;
+      if(i.needQty && i.needQty>1){var nq=document.createElement('span');nq.style.cssText='color:var(--red);font-weight:700;background:var(--red-bg);border-radius:10px;padding:1px 7px;font-size:12px;margin-right:4px';nq.textContent='×'+i.needQty;nameSpan.appendChild(nq);}
       if(i.qty){var q=document.createElement('span');q.style.cssText='color:var(--accent2);font-weight:700';q.textContent=' ('+i.qty+')';nameSpan.appendChild(q);}
       if(i.note){var n=document.createElement('span');n.style.cssText='color:var(--text3);font-size:12px;display:block';n.textContent=i.note;nameSpan.appendChild(n);}
       nameSpan.onclick=(function(id,span){return function(){editShoplistName(id,span);};})(i.id,nameSpan);
@@ -857,6 +894,19 @@ function showToast(msg){
   const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');
   clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.classList.remove('show'),2200);
 }
+
+// Handle browser back button — close topmost open modal
+window.addEventListener('popstate', function() {
+  var modals = ['shoplist-modal','item-modal','history-modal','newlist-modal','catmgr-modal','catitems-modal','confirm-modal'];
+  for (var i = modals.length-1; i >= 0; i--) {
+    var el = document.getElementById(modals[i]);
+    if (el && el.classList.contains('open')) {
+      el.classList.remove('open');
+      document.body.style.overflow='';
+      return;
+    }
+  }
+});
 
 document.addEventListener('keydown',e=>{
   if(e.key==='Escape')['item-modal','history-modal','newlist-modal','shoplist-modal','catmgr-modal','catitems-modal'].forEach(closeModal);
