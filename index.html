@@ -780,29 +780,16 @@ function shareWhatsApp(){
   const list=getCurrentList();
   const needItems=(list.items||[]).filter(i=>i.status==='need');
   if(!needItems.length){showToast('\u05D0\u05D9\u05DF \u05E4\u05E8\u05D9\u05D8\u05D9\u05DD \u05DC\u05E7\u05E0\u05D5\u05EA');return;}
-  const grouped={};
-  needItems.forEach(i=>{if(!grouped[i.category])grouped[i.category]=[];grouped[i.category].push(i);});
-  const lines=['\uD83D\uDED2 *'+list.name+'*',''];
-  CATEGORIES().filter(c=>grouped[c]).forEach(cat=>{
-    lines.push('*'+cat+':*');
-    grouped[cat].forEach(i=>lines.push('\u2022 '+i.name+(i.qty?' ('+i.qty+')':'')+(i.note?' - '+i.note:'')));
-    lines.push('');
-  });
-  window.open('https://wa.me/?text='+encodeURIComponent(lines.join('\n').trim()),'_blank');
+  const lines=needItems.map(i=>i.name+(i.needQty&&i.needQty>1?' x'+i.needQty:'')+(i.qty?' ('+i.qty+')':'')+(i.note?' - '+i.note:''));
+  window.open('https://wa.me/?text='+encodeURIComponent(lines.join('\n')),'_blank');
 }
 
 function copyShopList(){
   const list=getCurrentList();
   const needItems=(list.items||[]).filter(i=>i.status==='need');
   if(!needItems.length){showToast('\u05D0\u05D9\u05DF \u05E4\u05E8\u05D9\u05D8\u05D9\u05DD \u05DC\u05E7\u05E0\u05D5\u05EA');return;}
-  const grouped={};
-  needItems.forEach(i=>{if(!grouped[i.category])grouped[i.category]=[];grouped[i.category].push(i);});
-  let text='\uD83D\uDED2 '+list.name+'\n\n';
-  CATEGORIES().filter(c=>grouped[c]).forEach(cat=>{
-    text+=cat+':\n';
-    grouped[cat].forEach(i=>{text+='\u2022 '+i.name+(i.qty?' ('+i.qty+')':'')+(i.note?' \u2014 '+i.note:'')+'\n';});
-    text+='\n';
-  });
+  const lines=needItems.map(i=>i.name+(i.needQty&&i.needQty>1?' x'+i.needQty:'')+(i.qty?' ('+i.qty+')':'')+(i.note?' - '+i.note:''));
+  const text=lines.join('\n');
   navigator.clipboard.writeText(text).then(()=>showToast('\u05D4\u05D5\u05E2\u05EA\u05E7 \u2713')).catch(()=>showToast('\u05E9\u05D2\u05D9\u05D0\u05D4 \u05D1\u05D4\u05E2\u05EA\u05E7\u05D4'));
 }
 
