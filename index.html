@@ -550,17 +550,25 @@ function setStatus(itemId, status) {
   renderHeader();
 }
 
+var _needQtyTimers = {};
 function setNeedQty(itemId, qty) {
-  updateCurrentList(function(list){
-    var item=list.items.find(function(i){return i.id===itemId;});
-    if(item) item.needQty=qty;
-  });
+  // Update UI immediately
   var card=document.getElementById('card-'+itemId);
   if(card){
     var display=card.querySelector('.qty-display');
     if(display) display.textContent=qty;
+    var plus=card.querySelector('.plus-btn');
+    var minus=card.querySelector('.minus-btn');
+    if(plus) plus.onclick=function(){setNeedQty(itemId,qty+1);};
+    if(minus) minus.onclick=function(){setNeedQty(itemId,Math.max(1,qty-1));};
   }
-  renderHeader();
+  // Debounce the actual save — only write to storage after 600ms of no changes
+  clearTimeout(_needQtyTimers[itemId]);
+  _needQtyTimers[itemId] = setTimeout(function(){
+    var s=getState();
+    var item=s.lists[s.currentListId]&&s.lists[s.currentListId].items.find(function(i){return i.id===itemId;});
+    if(item){ item.needQty=qty; localStorage.setItem(STORAGE_KEY,JSON.stringify(s)); schedulePush(); }
+  }, 600);
 }
 
 function setFilter(f){activeFilter=f;renderAll();}
