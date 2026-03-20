@@ -277,7 +277,10 @@ function showSyncStatus(s) {
 
 async function sbFetch(path, opts) {
   opts = opts || {};
-  return fetch(SUPABASE_URL + path, Object.assign({}, opts, {
+  // Add apikey as query param as fallback
+  var sep = path.includes('?') ? '&' : '?';
+  var fullPath = path + sep + 'apikey=' + encodeURIComponent(SUPABASE_KEY);
+  return fetch(SUPABASE_URL + fullPath, Object.assign({}, opts, {
     mode: 'cors',
     headers: Object.assign({
       'apikey': SUPABASE_KEY,
