@@ -977,9 +977,40 @@ function initVoice() {
   r.onend = function() {
     // Only process if we stopped intentionally (isListening=false)
     if (!isListening && collectedText.length > 0) {
-      var fullText = collectedText.join(', ');
-      showVoiceToast('שמעתי: ' + fullText);
-      handleVoiceCommand(fullText);
+      // Extract the keyword from the first segment, apply to all segments
+      var keyword = null;
+      var needKw  = /^(חסר|אין|צריך)\s+/;
+      var haveKw  = /^(יש|יש לי|מצאתי|נמצא)\s+/;
+      var addKw   = /^(הוסף|להוסיף|קנה|לקנות)\s+/;
+      var delKw   = /^(מחק|הסר|למחוק)\s+/;
+      var segments = [];
+      collectedText.forEach(function(seg) {
+        seg = seg.toLowerCase().trim();
+        var mN = needKw.exec(seg);
+        var mH = haveKw.exec(seg);
+        var mA = addKw.exec(seg);
+        var mD = delKw.exec(seg);
+        if (mN) { keyword = 'need'; seg = seg.slice(mN[0].length); }
+        else if (mH) { keyword = 'have'; seg = seg.slice(mH[0].length); }
+        else if (mA) { keyword = 'add';  seg = seg.slice(mA[0].length); }
+        else if (mD) { keyword = 'del';  seg = seg.slice(mD[0].length); }
+        // Split by comma within segment too
+        seg.split(',').forEach(function(part) {
+          part = part.trim();
+          if (part) segments.push(part);
+        });
+      });
+      var list = getCurrentList();
+      var count = 0;
+      segments.forEach(function(part) {
+        var p = extractQtyAndName(part);
+        if (!p.name) return;
+        if (keyword === 'have') { setStatusByVoice(p.name, 'have', list, 1); }
+        else if (keyword === 'del') { deleteItemByVoice(p.name, list); }
+        else { setStatusByVoice(p.name, 'need', list, p.qty); }
+        count++;
+      });
+      if (count > 1) showVoiceToast('✅ עודכנו ' + count + ' פריטים');
     }
     collectedText = [];
     var btn = document.getElementById('mic-btn');
