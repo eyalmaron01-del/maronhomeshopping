@@ -275,6 +275,7 @@ let syncPending = false;
 let syncTimer = null;
 let lastPushedHash = null;
 let lastSeenAt = null;
+let pausePollingUntil = 0;
 
 function hashStr(str) {
   let h = 0;
@@ -367,6 +368,7 @@ async function doPull() {
 function startPolling() {
   setInterval(async () => {
     if (syncPending) return;
+      if (Date.now() < pausePollingUntil) return;
     try {
       const res = await sbFetch('/rest/v1/shopping_data?user_id=eq.' + USER_ID + '&select=data,updated_at', {
         headers: {'Prefer': 'return=representation'}
@@ -601,6 +603,8 @@ function setNeedQty(itemId, qty) {
     if(minus) minus.onclick=function(){setNeedQty(itemId,Math.max(1,qty-1));};
   }
   // Debounce the actual save — only write to storage after 600ms of no changes
+  // Pause polling for 3s to prevent remote overwrite during edit
+  pausePollingUntil = Date.now() + 3000;
   clearTimeout(_needQtyTimers[itemId]);
   _needQtyTimers[itemId] = setTimeout(function(){
     var s=getState();
