@@ -984,18 +984,19 @@ function initVoice() {
   };
   r.onend = function() {
     clearTimeout(window._voiceSilenceTimer);
-    if (isListening) {
-      // Browser stopped recognition by itself (silence)
-      // If we have collected text — process it
-      // If not — restart listening
-      if (collectedText.length > 0) {
-        isListening = false;
-      } else {
-        // Restart — keep listening
-        try { recognition.start(); return; } catch(ex) { isListening = false; }
-      }
+    var wasListening = isListening;
+    isListening = false;
+    document.getElementById('mic-btn').classList.remove('listening');
+    if (wasListening && collectedText.length === 0) {
+      // No speech yet — restart
+      try {
+        isListening = true;
+        document.getElementById('mic-btn').classList.add('listening');
+        recognition.start();
+        return;
+      } catch(ex) { isListening = false; }
     }
-    // isListening is now false — process
+    // Process whatever we collected
     if (collectedText.length > 0) {
       // Extract the keyword from the first segment, apply to all segments
       var keyword = null;
@@ -1049,8 +1050,6 @@ function initVoice() {
       showVoiceToast('✅ ' + msg);
     }
     collectedText = [];
-    var btn = document.getElementById('mic-btn');
-    if (btn) btn.classList.remove('listening');
   };
   return r;
 }
