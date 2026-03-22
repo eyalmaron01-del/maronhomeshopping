@@ -1000,7 +1000,8 @@ function initVoice() {
     clearTimeout(window._voiceSilenceTimer);
     document.getElementById('mic-btn').classList.remove('listening');
     var fullText = collectedText.join(' ').trim();
-    console.log('Voice input:', fullText);
+    console.log('Voice segments:', JSON.stringify(collectedText));
+    console.log('Voice joined:', fullText);
     collectedText = [];
     if (fullText) {
       handleVoiceCommand(fullText);
@@ -1146,6 +1147,7 @@ function handleVoiceCommand(text) {
   // Apply status to all found items in one update
   updateCurrentList(function(l) {
     items.forEach(function(found) {
+      console.log('Updating:', found.name, 'qty:', found.qty, 'id:', found.id);
       var it = l.items.find(function(i){ return i.id === found.id; });
       if (!it) {
         if (status === 'need') {
@@ -1155,9 +1157,15 @@ function handleVoiceCommand(text) {
       }
       if (isDel) { it.status='none'; return; }
       it.status = status;
-      if (status==='need') it.needQty = found.qty;
+      if (status==='need') {
+        it.needQty = found.qty;
+        console.log('Set needQty to', found.qty, 'for', found.name, '-> it.needQty now:', it.needQty);
+      }
     });
   });
+  // Verify after save
+  var verify = getCurrentList().items.find(function(i){return items.length>0 && i.id===items[0].id;});
+  console.log('After save, first item needQty:', verify ? verify.needQty : 'not found');
 
   renderAll();
   var names = items.map(function(f){ return f.name+(f.qty>1?' ×'+f.qty:''); }).join(', ');
@@ -1172,6 +1180,7 @@ function findItemsInText(text, list) {
   var used = []; // track character positions already matched
   var results = [];
 
+  console.log('findItemsInText searching in:', textLower);
   sorted.forEach(function(item) {
     var nl = item.name.toLowerCase();
     var idx = textLower.indexOf(nl);
