@@ -959,6 +959,14 @@ function initVoice() {
   r.interimResults = true;
 
   r.onresult = function(e) {
+    // Reset silence timer on every result
+    clearTimeout(window._voiceSilenceTimer);
+    window._voiceSilenceTimer = setTimeout(function() {
+      if (isListening) {
+        isListening = false;
+        try { recognition.stop(); } catch(ex) {}
+      }
+    }, 5000);
     // Collect only final results
     for (var i = e.resultIndex; i < e.results.length; i++) {
       if (e.results[i].isFinal) {
@@ -975,8 +983,10 @@ function initVoice() {
     }
   };
   r.onend = function() {
-    // Only process if we stopped intentionally (isListening=false)
-    if (!isListening && collectedText.length > 0) {
+    clearTimeout(window._voiceSilenceTimer);
+    // Process whether stopped by tap or by silence timer
+    isListening = false;
+    if (collectedText.length > 0) {
       // Extract the keyword from the first segment, apply to all segments
       var keyword = null;
       var needKw  = /^(חסר|אין|צריך)\s+/;
@@ -1049,6 +1059,10 @@ function toggleVoice() {
   isListening = true;
   document.getElementById('mic-btn').classList.add('listening');
   showVoiceToast('🎤 מאזין... לחץ שוב לסיום');
+  // Auto-stop after 5s of silence from start
+  window._voiceSilenceTimer = setTimeout(function() {
+    if (isListening) { isListening = false; try { recognition.stop(); } catch(ex) {} }
+  }, 5000);
   try { recognition.start(); } catch(e) { recognition = initVoice(); recognition.start(); }
 }
 
