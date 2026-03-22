@@ -1120,33 +1120,40 @@ function extractQtyAndName(text) {
 }
 
 function splitMultipleItems(text) {
-  // First try to match known item names from the list
   var list = getCurrentList();
-  if (list && list.items && list.items.length > 0) {
-    var found = [];
-    var remaining = text.toLowerCase();
-    // Sort items by name length descending to match longer names first
-    var sortedItems = list.items.slice().sort(function(a,b){ return b.name.length - a.name.length; });
-    sortedItems.forEach(function(item) {
-      var nameLower = item.name.toLowerCase();
-      var idx = remaining.indexOf(nameLower);
-      if (idx !== -1) {
-        // Extract any number adjacent to the name
-        var before = remaining.slice(Math.max(0, idx-4), idx).trim();
-        var after = remaining.slice(idx + nameLower.length, idx + nameLower.length + 4).trim();
-        var numBefore = before.match(/\d+$/);
-        var numAfter = after.match(/^\d+/);
-        var qty = numAfter ? parseInt(numAfter[0]) : (numBefore ? parseInt(numBefore[0]) : 1);
-        found.push(item.name + (qty > 1 ? ' ' + qty : ''));
-        // Remove matched part from remaining
-        remaining = remaining.slice(0, idx) + remaining.slice(idx + nameLower.length);
-      }
-    });
-    if (found.length > 0) return found;
+  if (!list || !list.items || !list.items.length) {
+    return text.split(/,|\s+ו/).map(function(p){return p.trim();}).filter(Boolean);
   }
-  // Fallback: split by comma, 'ו', or 'ו-'
-  var parts = text.split(/,|\s+ו[-\s]|\s+ו(?=[\u05D0-\u05EA])/);
-  return parts.map(function(p){ return p.trim(); }).filter(function(p){ return p.length > 0; });
+  // Build a list of {name, nameLower} sorted longest first
+  var sortedItems = list.items.slice().sort(function(a,b){return b.name.length-a.name.length;});
+  var textLower = text.toLowerCase();
+  // Find all matches with their positions
+  var matches = [];
+  sortedItems.forEach(function(item) {
+    var nl = item.name.toLowerCase();
+    var idx = textLower.indexOf(nl);
+    if (idx === -1) return;
+    // Check not already covered by a longer match
+    var covered = matches.some(function(m){ return idx >= m.start && idx < m.end; });
+    if (covered) return;
+    var end = idx + nl.length;
+    // Look for number right after name (skip spaces)
+    var afterStr = textLower.slice(end).match(/^\s*(\d+)/);
+    var qty = 1;
+    if (afterStr) { qty = parseInt(afterStr[1]); end += afterStr[0].length; }
+    // Look for number right before name (skip spaces)
+    if (qty === 1) {
+      var beforeStr = textLower.slice(0, idx).match(/(\d+)\s*$/);
+      if (beforeStr) qty = parseInt(beforeStr[1]);
+    }
+    matches.push({name: item.name, qty: qty, start: idx, end: end});
+  });
+  if (matches.length > 0) {
+    matches.sort(function(a,b){return a.start-b.start;});
+    return matches.map(function(m){ return m.name + (m.qty>1?' '+m.qty:''); });
+  }
+  // Fallback
+  return text.split(/,|\s+ו[-\s]?/).map(function(p){return p.trim();}).filter(Boolean);
 }
 
 function handleVoiceCommand(text) {
