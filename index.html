@@ -960,36 +960,13 @@ function initVoice() {
   r.onresult = function(e) {
     var text = e.results[0][0].transcript.trim();
     showVoiceToast('שמעתי: ' + text);
-    if (pendingQtyItemId) {
-      // We're waiting for a quantity — try to parse a number
-      var num = parseHebrewNumber(text);
-      if (num > 0) {
-        applyPendingQty(num);
-        return;
-      }
-      // Not a number — cancel pending and handle as new command
-      clearPendingQty();
-    }
     handleVoiceCommand(text);
   };
   r.onerror = function(e) {
     showVoiceToast('שגיאה: ' + e.error);
-    clearPendingQty();
     stopListening();
   };
-  r.onend = function() {
-    stopListening();
-    // If waiting for qty, listen again automatically
-    if (pendingQtyItemId) {
-      setTimeout(function(){
-        if (pendingQtyItemId && recognition) {
-          isListening = true;
-          document.getElementById('mic-btn').classList.add('listening');
-          try { recognition.start(); } catch(e) {}
-        }
-      }, 300);
-    }
-  };
+  r.onend = function() { stopListening(); };
   return r;
 }
 
@@ -1019,43 +996,32 @@ function showVoiceToast(msg) {
   window._voiceToastTimer = setTimeout(function(){ t.classList.remove('show'); }, 3000);
 }
 
-// Pending quantity state
-var pendingQtyItemId = null;
-var pendingQtyTimer = null;
-
-function setPendingQty(itemId, itemName) {
-  pendingQtyItemId = itemId;
-  clearTimeout(pendingQtyTimer);
-  showVoiceToast('כמה יחידות של ' + itemName + '?');
-  // Auto-cancel after 5 seconds
-  pendingQtyTimer = setTimeout(function(){
-    if (pendingQtyItemId) { clearPendingQty(); stopListening(); }
-  }, 5000);
-}
-
-function clearPendingQty() {
-  pendingQtyItemId = null;
-  clearTimeout(pendingQtyTimer);
-}
-
-function applyPendingQty(num) {
-  var id = pendingQtyItemId;
-  clearPendingQty();
-  setNeedQty(id, num);
-  showVoiceToast('✅ נקבעה כמות: ' + num);
-}
-
-function parseHebrewNumber(text) {
-  // Try Arabic digits first
-  var m = text.match(/\d+/);
-  if (m) return parseInt(m[0]);
-  // Hebrew number words
-  var words = {
-    'אחת':1,'אחד':1,'שתיים':2,'שניים':2,'שלוש':3,'שלושה':3,'ארבע':4,'ארבעה':4,
-    'חמש':5,'חמישה':5,'שש':6,'ששה':6,'שבע':7,'שבעה':7,'שמונה':8,'שמונה':8,
-    'תשע':9,'תשעה':9,'עשר':10
+function extractQtyAndName(text) {
+  // Match: number at start or end, rest is name
+  // e.g. "4 אורז", "אורז 4", "שלוש ביצים", "ביצים שלוש"
+  var numWords = {
+    'אחת':1,'אחד':1,'שתיים':2,'שני':2,'שניים':2,'שלוש':3,'שלושה':3,
+    'ארבע':4,'ארבעה':4,'חמש':5,'חמישה':5,'שש':6,'ששה':6,
+    'שבע':7,'שבעה':7,'שמונה':8,'שמונה':8,'תשע':9,'שתיים':2,'עשר':10
   };
-  return words[text.trim()] || 0;
+  var qty = 1;
+  var name = text;
+  // Try digit at start: "4 אורז"
+  var m = text.match(/^(\d+)\s+(.+)/);
+  if (m) return { qty: parseInt(m[1]), name: m[2].trim() };
+  // Try digit at end: "אורז 4"
+  m = text.match(/^(.+?)\s+(\d+)$/);
+  if (m) return { qty: parseInt(m[2]), name: m[1].trim() };
+  // Try Hebrew number word at start: "שלוש ביצים"
+  var words = text.split(' ');
+  if (words.length > 1 && numWords[words[0]]) {
+    return { qty: numWords[words[0]], name: words.slice(1).join(' ') };
+  }
+  // Try Hebrew number word at end: "ביצים שלוש"
+  if (words.length > 1 && numWords[words[words.length-1]]) {
+    return { qty: numWords[words[words.length-1]], name: words.slice(0,-1).join(' ') };
+  }
+  return { qty: 1, name: text };
 }
 
 function handleVoiceCommand(text) {
@@ -1064,24 +1030,25 @@ function handleVoiceCommand(text) {
 
   text = text.toLowerCase().trim();
 
-  // Patterns: "הוסף X", "חסר X", "אין X", "יש X", "קנה X", "מחק X", "הסר X"
-  var addPat   = /^(הוסף|להוסיף|קנה|לקנות)\s+(.+)/;
-  var needPat  = /^(חסר|אין|לקנות|צריך)\s+(.+)/;
-  var havePat  = /^(יש|יש לי|מצאתי|נמצא)\s+(.+)/;
-  var delPat   = /^(מחק|הסר|למחוק)\s+(.+)/;
+  var addPat  = /^(הוסף|להוסיף|קנה|לקנות)\s+(.+)/;
+  var needPat = /^(חסר|אין|צריך)\s+(.+)/;
+  var havePat = /^(יש|יש לי|מצאתי|נמצא)\s+(.+)/;
+  var delPat  = /^(מחק|הסר|למחוק)\s+(.+)/;
 
   var m;
   if ((m = addPat.exec(text))) {
-    addItemByVoice(m[2], list);
+    var p = extractQtyAndName(m[2]);
+    addItemByVoice(p.name, list, p.qty);
   } else if ((m = needPat.exec(text))) {
-    setStatusByVoice(m[2], 'need', list);
+    var p = extractQtyAndName(m[2]);
+    setStatusByVoice(p.name, 'need', list, p.qty);
   } else if ((m = havePat.exec(text))) {
-    setStatusByVoice(m[2], 'have', list);
+    setStatusByVoice(m[2], 'have', list, 1);
   } else if ((m = delPat.exec(text))) {
     deleteItemByVoice(m[2], list);
   } else {
-    // No keyword — try to find item and mark as need
-    setStatusByVoice(text, 'need', list);
+    var p = extractQtyAndName(text);
+    setStatusByVoice(p.name, 'need', list, p.qty);
   }
 }
 
@@ -1093,39 +1060,36 @@ function findItemByName(name, list) {
   return items.find(function(i){ return i.name.toLowerCase().includes(name) || name.includes(i.name.toLowerCase()); });
 }
 
-function addItemByVoice(name, list) {
+function addItemByVoice(name, list, qty) {
+  qty = qty || 1;
   var existing = findItemByName(name, list);
   if (existing) {
-    // Already exists — just mark as need
-    setStatusByVoice(name, 'need', list);
+    setStatusByVoice(name, 'need', list, qty);
     return;
   }
-  // Add new item
   updateCurrentList(function(l){
-    l.items.push({id:makeId(), name:name, category:'אחר', qty:'', note:'', status:'need', needQty:1});
+    l.items.push({id:makeId(), name:name, category:'אחר', qty:'', note:'', status:'need', needQty:qty});
   });
   renderAll();
-  showVoiceToast('➕ נוסף: ' + name);
+  showVoiceToast('➕ נוסף: ' + name + (qty>1?' (×'+qty+')':''));
 }
 
-function setStatusByVoice(name, status, list) {
+function setStatusByVoice(name, status, list, qty) {
+  qty = qty || 1;
   var item = findItemByName(name, list);
   if (!item) {
-    if (status === 'need') { addItemByVoice(name, list); return; }
+    if (status === 'need') { addItemByVoice(name, list, qty); return; }
     showVoiceToast('לא נמצא: ' + name);
     return;
   }
   updateCurrentList(function(l){
     var it = l.items.find(function(i){ return i.id===item.id; });
-    if (it) { it.status = status; if(status==='need' && !it.needQty) it.needQty=1; }
+    if (it) { it.status = status; it.needQty = status==='need' ? qty : it.needQty; }
   });
   renderAll();
   var emoji = status==='need' ? '❌' : '✅';
-  showVoiceToast(emoji + ' ' + item.name);
-  // After marking as need, wait for quantity
-  if (status === 'need') {
-    setTimeout(function(){ setPendingQty(item.id, item.name); }, 800);
-  }
+  var qtyStr = (status==='need' && qty>1) ? ' (×'+qty+')' : '';
+  showVoiceToast(emoji + ' ' + item.name + qtyStr);
 }
 
 function deleteItemByVoice(name, list) {
