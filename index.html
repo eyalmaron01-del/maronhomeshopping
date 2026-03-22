@@ -960,13 +960,36 @@ function initVoice() {
   r.onresult = function(e) {
     var text = e.results[0][0].transcript.trim();
     showVoiceToast('שמעתי: ' + text);
+    if (pendingQtyItemId) {
+      // We're waiting for a quantity — try to parse a number
+      var num = parseHebrewNumber(text);
+      if (num > 0) {
+        applyPendingQty(num);
+        return;
+      }
+      // Not a number — cancel pending and handle as new command
+      clearPendingQty();
+    }
     handleVoiceCommand(text);
   };
   r.onerror = function(e) {
     showVoiceToast('שגיאה: ' + e.error);
+    clearPendingQty();
     stopListening();
   };
-  r.onend = function() { stopListening(); };
+  r.onend = function() {
+    stopListening();
+    // If waiting for qty, listen again automatically
+    if (pendingQtyItemId) {
+      setTimeout(function(){
+        if (pendingQtyItemId && recognition) {
+          isListening = true;
+          document.getElementById('mic-btn').classList.add('listening');
+          try { recognition.start(); } catch(e) {}
+        }
+      }, 300);
+    }
+  };
   return r;
 }
 
@@ -994,6 +1017,45 @@ function showVoiceToast(msg) {
   t.classList.add('show');
   clearTimeout(window._voiceToastTimer);
   window._voiceToastTimer = setTimeout(function(){ t.classList.remove('show'); }, 3000);
+}
+
+// Pending quantity state
+var pendingQtyItemId = null;
+var pendingQtyTimer = null;
+
+function setPendingQty(itemId, itemName) {
+  pendingQtyItemId = itemId;
+  clearTimeout(pendingQtyTimer);
+  showVoiceToast('כמה יחידות של ' + itemName + '?');
+  // Auto-cancel after 5 seconds
+  pendingQtyTimer = setTimeout(function(){
+    if (pendingQtyItemId) { clearPendingQty(); stopListening(); }
+  }, 5000);
+}
+
+function clearPendingQty() {
+  pendingQtyItemId = null;
+  clearTimeout(pendingQtyTimer);
+}
+
+function applyPendingQty(num) {
+  var id = pendingQtyItemId;
+  clearPendingQty();
+  setNeedQty(id, num);
+  showVoiceToast('✅ נקבעה כמות: ' + num);
+}
+
+function parseHebrewNumber(text) {
+  // Try Arabic digits first
+  var m = text.match(/\d+/);
+  if (m) return parseInt(m[0]);
+  // Hebrew number words
+  var words = {
+    'אחת':1,'אחד':1,'שתיים':2,'שניים':2,'שלוש':3,'שלושה':3,'ארבע':4,'ארבעה':4,
+    'חמש':5,'חמישה':5,'שש':6,'ששה':6,'שבע':7,'שבעה':7,'שמונה':8,'שמונה':8,
+    'תשע':9,'תשעה':9,'עשר':10
+  };
+  return words[text.trim()] || 0;
 }
 
 function handleVoiceCommand(text) {
@@ -1060,6 +1122,10 @@ function setStatusByVoice(name, status, list) {
   renderAll();
   var emoji = status==='need' ? '❌' : '✅';
   showVoiceToast(emoji + ' ' + item.name);
+  // After marking as need, wait for quantity
+  if (status === 'need') {
+    setTimeout(function(){ setPendingQty(item.id, item.name); }, 800);
+  }
 }
 
 function deleteItemByVoice(name, list) {
