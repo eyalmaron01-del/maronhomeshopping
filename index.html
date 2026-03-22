@@ -1010,6 +1010,7 @@ function initVoice() {
         else { setStatusByVoice(p.name, 'need', list, p.qty); }
         count++;
       });
+      renderAll();
       if (count > 1) showVoiceToast('✅ עודכנו ' + count + ' פריטים');
     }
     collectedText = [];
@@ -1175,7 +1176,7 @@ function deleteItemByVoice(name, list) {
   if (!item) { showVoiceToast('לא נמצא: ' + name); return; }
   updateCurrentList(function(l){ l.items = l.items.filter(function(i){ return i.id !== item.id; }); });
   renderAll();
-  showVoiceToast('??️ נמחק: ' + item.name);
+  showVoiceToast('??️ שנמחק: ' + item.name);
 }
 
 // Set initial history state so back button can close modals
