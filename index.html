@@ -946,270 +946,178 @@ document.addEventListener('keydown',e=>{
 // ════════════════════════════════════════════
 //  VOICE COMMANDS
 // ════════════════════════════════════════════
-var recognition = null;
-var isListening = false;
-var collectedText = [];
+var recog = null;
+var voiceActive = false;
+var voiceSegments = [];
+var voiceSilenceTimer = null;
 
-function initVoice() {
-  var SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SpeechRecognition) return null;
-  var r = new SpeechRecognition();
+function initRecog() {
+  var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) return null;
+  var r = new SR();
   r.lang = 'he-IL';
-  r.continuous = true;   // keep listening until user taps again
-  r.interimResults = true;
+  r.continuous = false;
+  r.interimResults = false;
+  r.maxAlternatives = 1;
 
   r.onresult = function(e) {
-    // Reset silence timer on every result
-    clearTimeout(window._voiceSilenceTimer);
-    window._voiceSilenceTimer = setTimeout(function() {
-      if (isListening && collectedText.length > 0) {
-        // Has speech — stop and process
-        isListening = false;
-        try { recognition.stop(); } catch(ex) {}
-      }
-      // If no speech yet, keep waiting
-    }, 5000);
-    // Collect only final results
-    for (var i = e.resultIndex; i < e.results.length; i++) {
-      if (e.results[i].isFinal) {
-        collectedText.push(e.results[i][0].transcript.trim());
-      }
-    }
-    // Show live feedback
-    var last = e.results[e.results.length-1][0].transcript;
-    showVoiceToast('🎤 ' + last);
+    var t = e.results[0][0].transcript.trim();
+    voiceSegments.push(t);
+    showVoiceToast('\uD83C\uDFA4 ' + t);
+    // Reset silence timer — user may say more
+    clearTimeout(voiceSilenceTimer);
+    voiceSilenceTimer = setTimeout(processVoice, 3500);
+    // Restart to keep listening
+    if (voiceActive) setTimeout(restartRecog, 150);
   };
+
   r.onerror = function(e) {
-    if (e.error !== 'no-speech') {
-      showVoiceToast('שגיאה: ' + e.error);
+    if (e.error === 'no-speech' || e.error === 'aborted') {
+      if (voiceActive) setTimeout(restartRecog, 150);
+    } else {
+      showVoiceToast('\u05E9\u05D2\u05D9\u05D0\u05D4: ' + e.error);
+      stopVoice(false);
     }
   };
+
   r.onend = function() {
-    // If user tapped stop (isListening=false) OR silence timer fired -> process
-    // If browser stopped by itself mid-session -> restart to keep listening
-    if (isListening) {
-      // Browser stopped by itself — restart to keep accumulating
-      try {
-        recognition.start();
-        return;
-      } catch(ex) {
-        isListening = false;
-      }
-    }
-    // Stopped intentionally — process
-    clearTimeout(window._voiceSilenceTimer);
-    document.getElementById('mic-btn').classList.remove('listening');
-    var fullText = collectedText.join(' ').trim();
-    console.log('Voice segments:', JSON.stringify(collectedText));
-    console.log('Voice joined:', fullText);
-    collectedText = [];
-    if (fullText) {
-      handleVoiceCommand(fullText);
-    }
+    if (voiceActive) setTimeout(restartRecog, 150);
   };
+
   return r;
 }
 
-function toggleVoice() {
-  if (isListening) {
-    // Second tap — stop and process
-    isListening = false;
-    if (recognition) { try { recognition.stop(); } catch(e) {} }
-    return;
+function restartRecog() {
+  if (!voiceActive) return;
+  try { recog.start(); } catch(ex) {
+    // If can't restart, reinit
+    recog = initRecog();
+    if (recog) try { recog.start(); } catch(ex2) { stopVoice(false); }
   }
-  // First tap — start listening
-  if (!recognition) recognition = initVoice();
-  if (!recognition) { showVoiceToast('הדפדפן לא תומך בפקודות קוליות'); return; }
-  collectedText = [];
-  isListening = true;
-  document.getElementById('mic-btn').classList.add('listening');
-  showVoiceToast('🎤 מאזין... לחץ שוב לסיום');
-  // Auto-stop after 10s if no speech at all
-  window._voiceSilenceTimer = setTimeout(function() {
-    if (isListening && collectedText.length === 0) {
-      isListening = false;
-      try { recognition.stop(); } catch(ex) {}
-      showVoiceToast('לא זיהיתי קול');
-    }
-  }, 10000);
-  try { recognition.start(); } catch(e) { recognition = initVoice(); recognition.start(); }
 }
 
-function stopListening() {
-  isListening = false;
-  var btn = document.getElementById('mic-btn');
-  if (btn) btn.classList.remove('listening');
-  if (recognition) { try { recognition.stop(); } catch(e) {} }
+function toggleVoice() {
+  if (voiceActive) { processVoice(); } else { startVoice(); }
 }
+
+function startVoice() {
+  if (!recog) recog = initRecog();
+  if (!recog) { showVoiceToast('\u05D4\u05D3\u05E4\u05D3\u05E4\u05DF \u05DC\u05D0 \u05EA\u05D5\u05DE\u05DA'); return; }
+  voiceActive = true;
+  voiceSegments = [];
+  clearTimeout(voiceSilenceTimer);
+  document.getElementById('mic-btn').classList.add('listening');
+  showVoiceToast('\uD83C\uDFA4 \u05DE\u05D0\u05D6\u05D9\u05DF... \u05DC\u05D7\u05E5 \u05E9\u05D5\u05D1 \u05DC\u05E1\u05D9\u05D5\u05DD');
+  // Auto-cancel after 15s with no speech
+  setTimeout(function(){ if(voiceActive && voiceSegments.length===0) stopVoice(false); }, 15000);
+  try { recog.start(); } catch(ex) { recog = initRecog(); if(recog) recog.start(); }
+}
+
+function stopVoice(andProcess) {
+  voiceActive = false;
+  clearTimeout(voiceSilenceTimer);
+  document.getElementById('mic-btn').classList.remove('listening');
+  try { recog.abort(); } catch(ex) {}
+  if (andProcess && voiceSegments.length > 0) {
+    var text = voiceSegments.join(' ').trim();
+    voiceSegments = [];
+    handleVoiceCommand(text);
+  } else {
+    if (!andProcess && voiceSegments.length === 0) showVoiceToast('\u05D1\u05D5\u05D8\u05DC');
+    voiceSegments = [];
+  }
+}
+
+function processVoice() { stopVoice(true); }
 
 function showVoiceToast(msg) {
   var t = document.getElementById('voice-toast');
   if (!t) return;
   t.textContent = msg;
   t.classList.add('show');
-  clearTimeout(window._voiceToastTimer);
-  window._voiceToastTimer = setTimeout(function(){ t.classList.remove('show'); }, 3000);
-}
-
-function extractQtyAndName(text) {
-  // Match: number at start or end, rest is name
-  // e.g. "4 אורז", "אורז 4", "שלוש ביצים", "ביצים שלוש"
-  var numWords = {
-    'אחת':1,'אחד':1,'שתיים':2,'שני':2,'שניים':2,'שלוש':3,'שלושה':3,
-    'ארבע':4,'ארבעה':4,'חמש':5,'חמישה':5,'שש':6,'ששה':6,
-    'שבע':7,'שבעה':7,'שמונה':8,'שמונה':8,'תשע':9,'שתיים':2,'עשר':10
-  };
-  var qty = 1;
-  var name = text;
-  // Try digit at start: "4 אורז"
-  var m = text.match(/^(\d+)\s+(.+)/);
-  if (m) return { qty: parseInt(m[1]), name: m[2].trim() };
-  // Try digit at end: "אורז 4"
-  m = text.match(/^(.+?)\s+(\d+)$/);
-  if (m) return { qty: parseInt(m[2]), name: m[1].trim() };
-  // Try Hebrew number word at start: "שלוש ביצים"
-  var words = text.split(' ');
-  if (words.length > 1 && numWords[words[0]]) {
-    return { qty: numWords[words[0]], name: words.slice(1).join(' ') };
-  }
-  // Try Hebrew number word at end: "ביצים שלוש"
-  if (words.length > 1 && numWords[words[words.length-1]]) {
-    return { qty: numWords[words[words.length-1]], name: words.slice(0,-1).join(' ') };
-  }
-  return { qty: 1, name: text };
-}
-
-function splitMultipleItems(text) {
-  var list = getCurrentList();
-  if (!list || !list.items || !list.items.length) {
-    return text.split(/,|\s+ו/).map(function(p){return p.trim();}).filter(Boolean);
-  }
-  // Build a list of {name, nameLower} sorted longest first
-  var sortedItems = list.items.slice().sort(function(a,b){return b.name.length-a.name.length;});
-  var textLower = text.toLowerCase();
-  // Find all matches with their positions
-  var matches = [];
-  sortedItems.forEach(function(item) {
-    var nl = item.name.toLowerCase();
-    var idx = textLower.indexOf(nl);
-    if (idx === -1) return;
-    // Check not already covered by a longer match
-    var covered = matches.some(function(m){ return idx >= m.start && idx < m.end; });
-    if (covered) return;
-    var end = idx + nl.length;
-    // Look for number right after name (skip spaces)
-    var afterStr = textLower.slice(end).match(/^\s*(\d+)/);
-    var qty = 1;
-    if (afterStr) { qty = parseInt(afterStr[1]); end += afterStr[0].length; }
-    // Look for number right before name (skip spaces)
-    if (qty === 1) {
-      var beforeStr = textLower.slice(0, idx).match(/(\d+)\s*$/);
-      if (beforeStr) qty = parseInt(beforeStr[1]);
-    }
-    matches.push({name: item.name, qty: qty, start: idx, end: end});
-  });
-  if (matches.length > 0) {
-    matches.sort(function(a,b){return a.start-b.start;});
-    return matches.map(function(m){ return m.name + (m.qty>1?' '+m.qty:''); });
-  }
-  // Fallback
-  return text.split(/,|\s+ו[-\s]?/).map(function(p){return p.trim();}).filter(Boolean);
+  clearTimeout(window._vtTimer);
+  window._vtTimer = setTimeout(function(){ t.classList.remove('show'); }, 3500);
 }
 
 function handleVoiceCommand(text) {
   var list = getCurrentList();
-  if (!list) { showVoiceToast('אין רשימה פעילה'); return; }
-
+  if (!list) { showVoiceToast('\u05D0\u05D9\u05DF \u05E8\u05E9\u05D9\u05DE\u05D4 \u05E4\u05E2\u05D9\u05DC\u05D4'); return; }
+  var orig = text;
   text = text.toLowerCase().trim();
 
-  // Detect keyword at the start
-  var status = 'need'; // default
-  var needPat = /^(חסר|אין|צריך|need)\s+/;
-  var havePat = /^(יש|יש לי|מצאתי|נמצא|have)\s+/;
-  var addPat  = /^(הוסף|להוסיף|קנה|לקנות|add)\s+/;
-  var delPat  = /^(מחק|הסר|למחוק|delete)\s+/;
-  var isDel = false;
+  var status = 'need', isDel = false, kw;
+  var needRe = /^(\u05D7\u05E1\u05E8|\u05D0\u05D9\u05DF|\u05E6\u05E8\u05D9\u05DA|\u05DC\u05E7\u05E0\u05D5\u05EA)\s+/;
+  var haveRe = /^(\u05D9\u05E9|\u05D9\u05E9 \u05DC\u05D9|\u05DE\u05E6\u05D0\u05EA\u05D9|\u05E0\u05DE\u05E6\u05D0)\s+/;
+  var addRe  = /^(\u05D4\u05D5\u05E1\u05E3|\u05E7\u05E0\u05D4|\u05DC\u05D4\u05D5\u05E1\u05D9\u05E3)\s+/;
+  var delRe  = /^(\u05DE\u05D7\u05E7|\u05D4\u05E1\u05E8|\u05DC\u05DE\u05D7\u05D5\u05E7)\s+/;
 
-  var m;
-  if ((m = needPat.exec(text))) { status='need'; text=text.slice(m[0].length); }
-  else if ((m = havePat.exec(text))) { status='have'; text=text.slice(m[0].length); }
-  else if ((m = addPat.exec(text)))  { status='need'; text=text.slice(m[0].length); }
-  else if ((m = delPat.exec(text)))  { status='need'; isDel=true; text=text.slice(m[0].length); }
+  if      ((kw=needRe.exec(text))) { status='need'; text=text.slice(kw[0].length); }
+  else if ((kw=haveRe.exec(text))) { status='have'; text=text.slice(kw[0].length); }
+  else if ((kw=addRe.exec(text)))  { status='need'; text=text.slice(kw[0].length); }
+  else if ((kw=delRe.exec(text)))  { isDel=true;    text=text.slice(kw[0].length); }
 
-  // Now find all items in the remaining text
-  var items = findItemsInText(text, list);
+  var found = findItemsInText(text, list);
+  if (found.length === 0) { showVoiceToast('\u05DC\u05D0 \u05D6\u05D9\u05D4\u05D9\u05EA\u05D9: ' + orig); return; }
 
-  if (items.length === 0) {
-    showVoiceToast('לא זיהיתי פריטים: ' + text);
-    return;
-  }
-
-  // Apply status to all found items in one update
   updateCurrentList(function(l) {
-    items.forEach(function(found) {
-      console.log('Updating:', found.name, 'qty:', found.qty, 'id:', found.id);
-      var it = l.items.find(function(i){ return i.id === found.id; });
-      if (!it) {
-        if (status === 'need') {
-          l.items.push({id:makeId(), name:found.name, category:'אחר', qty:'', note:'', status:'need', needQty:found.qty});
-        }
+    found.forEach(function(f) {
+      if (isDel) {
+        l.items = l.items.filter(function(i){ return i.id!==f.id; });
         return;
       }
-      if (isDel) { it.status='none'; return; }
-      it.status = status;
-      if (status==='need') {
-        it.needQty = found.qty;
-        console.log('Set needQty to', found.qty, 'for', found.name, '-> it.needQty now:', it.needQty);
+      var it = l.items.find(function(i){ return i.id===f.id; });
+      if (!it) {
+        if (status==='need') l.items.push({id:makeId(),name:f.name,category:'\u05D0\u05D7\u05E8',qty:'',note:'',status:'need',needQty:f.qty});
+        return;
       }
+      it.status = status;
+      if (status==='need') it.needQty = f.qty;
     });
   });
-  // Verify after save
-  var verify = getCurrentList().items.find(function(i){return items.length>0 && i.id===items[0].id;});
-  console.log('After save, first item needQty:', verify ? verify.needQty : 'not found');
 
+  // Pause polling so remote doesn't overwrite fresh local data
+  pausePollingUntil = Date.now() + 6000;
   renderAll();
-  var names = items.map(function(f){ return f.name+(f.qty>1?' ×'+f.qty:''); }).join(', ');
-  var emoji = isDel ? '??️' : status==='need' ? '❌' : '✅';
+
+  var emoji = isDel ? '\uD83D\uDDD1\uFE0F' : status==='need' ? '\u274C' : '\u2705';
+  var names = found.map(function(f){ return f.name+(f.qty>1?' \u00D7'+f.qty:''); }).join(', ');
   showVoiceToast(emoji + ' ' + names);
 }
 
 function findItemsInText(text, list) {
-  // Sort items longest name first to avoid partial matches
-  var sorted = list.items.slice().sort(function(a,b){return b.name.length-a.name.length;});
-  var textLower = text.toLowerCase();
-  var used = []; // track character positions already matched
-  var results = [];
+  var sorted = list.items.slice().sort(function(a,b){ return b.name.length-a.name.length; });
+  var tl = text.toLowerCase();
+  var used = [], results = [];
 
-  console.log('findItemsInText searching in:', textLower);
   sorted.forEach(function(item) {
     var nl = item.name.toLowerCase();
-    var idx = textLower.indexOf(nl);
+    var idx = tl.indexOf(nl);
     if (idx === -1) return;
-    // Skip if already matched by a longer item
-    var overlap = used.some(function(r){ return idx < r.end && idx+nl.length > r.start; });
-    if (overlap) return;
+    if (used.some(function(u){ return idx<u.end && idx+nl.length>u.start; })) return;
 
     var end = idx + nl.length;
     var qty = 1;
 
-    // Look for number after name: "אורז 4"
-    var afterMatch = textLower.slice(end).match(/^\s*(\d+)/);
-    if (afterMatch) {
-      qty = parseInt(afterMatch[1]);
-      end += afterMatch[0].length;
-    } else {
-      // Look for number before name: "4 אורז"
-      var beforeMatch = textLower.slice(0, idx).match(/(\d+)\s*$/);
-      if (beforeMatch) qty = parseInt(beforeMatch[1]);
+    // Number after: "אורז 4"
+    var am = tl.slice(end).match(/^\s*(\d+)/);
+    if (am) { qty=parseInt(am[1]); end+=am[0].length; }
+    else {
+      // Number before: "4 אורז"
+      var bm = tl.slice(0,idx).match(/(\d+)\s*$/);
+      if (bm) qty=parseInt(bm[1]);
     }
 
     // Hebrew number words
-    if (qty === 1) {
-      var numWords = {'אחת':1,'אחד':1,'שתיים':2,'שני':2,'שלוש':3,'שלושה':3,'ארבע':4,'ארבעה':4,'חמש':5,'שש':6,'שבע':7,'שמונה':8,'תשע':9,'עשר':10};
-      var afterWord = textLower.slice(end).match(/^\s*([\u05D0-\u05EA]+)/);
-      var beforeWord = textLower.slice(0, idx).match(/([\u05D0-\u05EA]+)\s*$/);
-      if (afterWord && numWords[afterWord[1]]) { qty=numWords[afterWord[1]]; end+=afterWord[0].length; }
-      else if (beforeWord && numWords[beforeWord[1]]) { qty=numWords[beforeWord[1]]; }
+    if (qty===1) {
+      var hw={'\u05D0\u05D7\u05EA':1,'\u05D0\u05D7\u05D3':1,'\u05E9\u05EA\u05D9\u05D9\u05DD':2,'\u05E9\u05E0\u05D9':2,'\u05E9\u05E0\u05D9\u05D9\u05DD':2,
+              '\u05E9\u05DC\u05D5\u05E9':3,'\u05E9\u05DC\u05D5\u05E9\u05D4':3,'\u05D0\u05E8\u05D1\u05E2':4,'\u05D0\u05E8\u05D1\u05E2\u05D4':4,
+              '\u05D7\u05DE\u05E9':5,'\u05D7\u05DE\u05D9\u05E9\u05D4':5,'\u05E9\u05E9':6,'\u05E9\u05E9\u05D4':6,
+              '\u05E9\u05D1\u05E2':7,'\u05E9\u05D1\u05E2\u05D4':7,'\u05E9\u05DE\u05D5\u05E0\u05D4':8,
+              '\u05EA\u05E9\u05E2':9,'\u05EA\u05E9\u05E2\u05D4':9,'\u05E2\u05E9\u05E8':10};
+      var aw=tl.slice(end).match(/^\s*([\u05D0-\u05EA]+)/);
+      var bw=tl.slice(0,idx).match(/([\u05D0-\u05EA]+)\s*$/);
+      if (aw&&hw[aw[1]]) { qty=hw[aw[1]]; end+=aw[0].length; }
+      else if (bw&&hw[bw[1]]) qty=hw[bw[1]];
     }
 
     used.push({start:idx, end:end});
@@ -1217,54 +1125,6 @@ function findItemsInText(text, list) {
   });
 
   return results;
-}
-
-function findItemByName(name, list) {
-  // Try exact match first, then partial
-  var items = list.items || [];
-  var exact = items.find(function(i){ return i.name.toLowerCase() === name; });
-  if (exact) return exact;
-  return items.find(function(i){ return i.name.toLowerCase().includes(name) || name.includes(i.name.toLowerCase()); });
-}
-
-function addItemByVoice(name, list, qty) {
-  qty = qty || 1;
-  var existing = findItemByName(name, list);
-  if (existing) {
-    setStatusByVoice(name, 'need', list, qty);
-    return;
-  }
-  updateCurrentList(function(l){
-    l.items.push({id:makeId(), name:name, category:'אחר', qty:'', note:'', status:'need', needQty:qty});
-  });
-  renderAll();
-  showVoiceToast('➕ נוסף: ' + name + (qty>1?' (×'+qty+')':''));
-}
-
-function setStatusByVoice(name, status, list, qty) {
-  qty = qty || 1;
-  var item = findItemByName(name, list);
-  if (!item) {
-    if (status === 'need') { addItemByVoice(name, list, qty); return; }
-    showVoiceToast('לא נמצא: ' + name);
-    return;
-  }
-  updateCurrentList(function(l){
-    var it = l.items.find(function(i){ return i.id===item.id; });
-    if (it) { it.status = status; it.needQty = status==='need' ? qty : it.needQty; }
-  });
-  renderAll();
-  var emoji = status==='need' ? '❌' : '✅';
-  var qtyStr = (status==='need' && qty>1) ? ' (×'+qty+')' : '';
-  showVoiceToast(emoji + ' ' + item.name + qtyStr);
-}
-
-function deleteItemByVoice(name, list) {
-  var item = findItemByName(name, list);
-  if (!item) { showVoiceToast('לא נמצא: ' + name); return; }
-  updateCurrentList(function(l){ l.items = l.items.filter(function(i){ return i.id !== item.id; }); });
-  renderAll();
-  showVoiceToast('🗑️ שנמחק: ' + item.name);
 }
 
 // Set initial history state so back button can close modals
