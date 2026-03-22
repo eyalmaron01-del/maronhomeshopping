@@ -948,36 +948,61 @@ document.addEventListener('keydown',e=>{
 // ════════════════════════════════════════════
 var recognition = null;
 var isListening = false;
+var collectedText = [];
 
 function initVoice() {
   var SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SpeechRecognition) return null;
   var r = new SpeechRecognition();
   r.lang = 'he-IL';
-  r.continuous = false;
-  r.interimResults = false;
+  r.continuous = true;   // keep listening until user taps again
+  r.interimResults = true;
 
   r.onresult = function(e) {
-    var text = e.results[0][0].transcript.trim();
-    showVoiceToast('שמעתי: ' + text);
-    handleVoiceCommand(text);
+    // Collect only final results
+    for (var i = e.resultIndex; i < e.results.length; i++) {
+      if (e.results[i].isFinal) {
+        collectedText.push(e.results[i][0].transcript.trim());
+      }
+    }
+    // Show live feedback
+    var last = e.results[e.results.length-1][0].transcript;
+    showVoiceToast('?? ' + last);
   };
   r.onerror = function(e) {
-    showVoiceToast('שגיאה: ' + e.error);
-    stopListening();
+    if (e.error !== 'no-speech') {
+      showVoiceToast('שגיאה: ' + e.error);
+    }
   };
-  r.onend = function() { stopListening(); };
+  r.onend = function() {
+    // Only process if we stopped intentionally (isListening=false)
+    if (!isListening && collectedText.length > 0) {
+      var fullText = collectedText.join(', ');
+      showVoiceToast('שמעתי: ' + fullText);
+      handleVoiceCommand(fullText);
+    }
+    collectedText = [];
+    var btn = document.getElementById('mic-btn');
+    if (btn) btn.classList.remove('listening');
+  };
   return r;
 }
 
 function toggleVoice() {
-  if (isListening) { stopListening(); return; }
+  if (isListening) {
+    // Second tap — stop and process
+    isListening = false;
+    if (recognition) { try { recognition.stop(); } catch(e) {} }
+    return;
+  }
+  // First tap — start listening
   if (!recognition) recognition = initVoice();
   if (!recognition) { showVoiceToast('הדפדפן לא תומך בפקודות קוליות'); return; }
+  collectedText = [];
   isListening = true;
   document.getElementById('mic-btn').classList.add('listening');
-  showVoiceToast('מאזין... דבר!');
-  recognition.start();
+  showVoiceToast('?? מאזין... לחץ שוב לסיום');
+  try { recognition.start(); } catch(e) { recognition = initVoice(); recognition.start(); }
 }
 
 function stopListening() {
@@ -1024,6 +1049,13 @@ function extractQtyAndName(text) {
   return { qty: 1, name: text };
 }
 
+function splitMultipleItems(text) {
+  // Split by commas or 'ו' connector between items
+  // e.g. "ביצים 4, חיתולים 3, עדשים 2"
+  var parts = text.split(/,|\s+ו(?=\s)/);
+  return parts.map(function(p){ return p.trim(); }).filter(function(p){ return p.length > 0; });
+}
+
 function handleVoiceCommand(text) {
   var list = getCurrentList();
   if (!list) { showVoiceToast('אין רשימה פעילה'); return; }
@@ -1037,18 +1069,33 @@ function handleVoiceCommand(text) {
 
   var m;
   if ((m = addPat.exec(text))) {
-    var p = extractQtyAndName(m[2]);
-    addItemByVoice(p.name, list, p.qty);
+    splitMultipleItems(m[2]).forEach(function(part) {
+      var p = extractQtyAndName(part);
+      addItemByVoice(p.name, list, p.qty);
+    });
   } else if ((m = needPat.exec(text))) {
-    var p = extractQtyAndName(m[2]);
-    setStatusByVoice(p.name, 'need', list, p.qty);
+    var parts = splitMultipleItems(m[2]);
+    parts.forEach(function(part) {
+      var p = extractQtyAndName(part);
+      setStatusByVoice(p.name, 'need', list, p.qty);
+    });
+    if (parts.length > 1) showVoiceToast('❌ עודכנו ' + parts.length + ' פריטים');
   } else if ((m = havePat.exec(text))) {
-    setStatusByVoice(m[2], 'have', list, 1);
+    splitMultipleItems(m[2]).forEach(function(part) {
+      setStatusByVoice(part, 'have', list, 1);
+    });
   } else if ((m = delPat.exec(text))) {
-    deleteItemByVoice(m[2], list);
+    splitMultipleItems(m[2]).forEach(function(part) {
+      deleteItemByVoice(part, list);
+    });
   } else {
-    var p = extractQtyAndName(text);
-    setStatusByVoice(p.name, 'need', list, p.qty);
+    // No keyword — split and mark all as need
+    var parts = splitMultipleItems(text);
+    parts.forEach(function(part) {
+      var p = extractQtyAndName(part);
+      setStatusByVoice(p.name, 'need', list, p.qty);
+    });
+    if (parts.length > 1) showVoiceToast('❌ עודכנו ' + parts.length + ' פריטים');
   }
 }
 
