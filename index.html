@@ -1120,9 +1120,32 @@ function extractQtyAndName(text) {
 }
 
 function splitMultipleItems(text) {
-  // Split by commas or 'ו' connector between items
-  // e.g. "ביצים 4, חיתולים 3, עדשים 2"
-  var parts = text.split(/,|\s+ו(?=\s)/);
+  // First try to match known item names from the list
+  var list = getCurrentList();
+  if (list && list.items && list.items.length > 0) {
+    var found = [];
+    var remaining = text.toLowerCase();
+    // Sort items by name length descending to match longer names first
+    var sortedItems = list.items.slice().sort(function(a,b){ return b.name.length - a.name.length; });
+    sortedItems.forEach(function(item) {
+      var nameLower = item.name.toLowerCase();
+      var idx = remaining.indexOf(nameLower);
+      if (idx !== -1) {
+        // Extract any number adjacent to the name
+        var before = remaining.slice(Math.max(0, idx-4), idx).trim();
+        var after = remaining.slice(idx + nameLower.length, idx + nameLower.length + 4).trim();
+        var numBefore = before.match(/\d+$/);
+        var numAfter = after.match(/^\d+/);
+        var qty = numAfter ? parseInt(numAfter[0]) : (numBefore ? parseInt(numBefore[0]) : 1);
+        found.push(item.name + (qty > 1 ? ' ' + qty : ''));
+        // Remove matched part from remaining
+        remaining = remaining.slice(0, idx) + remaining.slice(idx + nameLower.length);
+      }
+    });
+    if (found.length > 0) return found;
+  }
+  // Fallback: split by comma, 'ו', or 'ו-'
+  var parts = text.split(/,|\s+ו[-\s]|\s+ו(?=[\u05D0-\u05EA])/);
   return parts.map(function(p){ return p.trim(); }).filter(function(p){ return p.length > 0; });
 }
 
