@@ -123,6 +123,11 @@ main{padding:12px;max-width:680px;margin:0 auto;padding-bottom:90px}
 .move-select{padding:5px 9px;border:1.5px solid var(--border);border-radius:8px;font-family:'Heebo',sans-serif;font-size:13px;background:var(--bg);color:var(--text);direction:rtl;outline:none;cursor:pointer}
 .move-select:focus{border-color:var(--accent)}
 @media(max-width:480px){.item-name{font-size:14px}.status-btn{width:38px;height:30px;font-size:15px}}
+  .mic-btn{position:fixed;bottom:22px;left:22px;width:52px;height:52px;border-radius:50%;background:var(--text);border:none;color:white;font-size:22px;cursor:pointer;box-shadow:var(--shadow-lg);z-index:200;display:flex;align-items:center;justify-content:center;transition:all 0.2s}
+  .mic-btn.listening{background:var(--red);animation:pulse 1s infinite}
+  @keyframes pulse{0%,100%{transform:scale(1);box-shadow:0 0 0 0 rgba(192,57,43,0.4)}50%{transform:scale(1.08);box-shadow:0 0 0 10px rgba(192,57,43,0)}}
+  .voice-toast{position:fixed;top:80px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.85);color:white;padding:10px 20px;border-radius:50px;font-size:14px;font-weight:600;z-index:500;pointer-events:none;white-space:nowrap;opacity:0;transition:opacity 0.2s}
+  .voice-toast.show{opacity:1}
 </style>
 </head>
 <body>
@@ -155,6 +160,8 @@ main{padding:12px;max-width:680px;margin:0 auto;padding-bottom:90px}
 <div class="category-tabs" id="category-tabs"></div>
 <main id="items-container"></main>
 <button class="add-fab" onclick="openAddModal()"><span class="plus">+</span> &#x05D4;&#x05D5;&#x05E1;&#x05E4;&#x05EA; &#x05E4;&#x05E8;&#x05D9;&#x05D8;</button>
+<button class="mic-btn" id="mic-btn" onclick="toggleVoice()" title="פקודה קולית">🎤</button>
+<div class="voice-toast" id="voice-toast"></div>
 <div class="modal-overlay" id="item-modal" onclick="closeModalOnOverlay(event,'item-modal')">
   <div class="modal">
     <div class="modal-handle"></div>
@@ -295,25 +302,22 @@ async function sbFetch(path, opts) {
   opts = opts || {};
   var sep = path.includes('?') ? '&' : '?';
   var fullPath = path + sep + 'apikey=' + encodeURIComponent(SUPABASE_KEY);
-  var controller = new AbortController();
-  var timeout = setTimeout(function(){ controller.abort(); }, 8000);
-  try {
-    var res = await fetch(SUPABASE_URL + fullPath, Object.assign({}, opts, {
-      mode: 'cors',
-      signal: controller.signal,
-      headers: Object.assign({
-        'apikey': SUPABASE_KEY,
-        'Authorization': 'Bearer ' + SUPABASE_KEY,
-        'Content-Type': 'application/json',
-        'Accept': 'application/json'
-      }, opts.headers || {})
-    }));
-    clearTimeout(timeout);
-    return res;
-  } catch(e) {
-    clearTimeout(timeout);
-    throw e;
-  }
+  var headers = Object.assign({
+    'apikey': SUPABASE_KEY,
+    'Authorization': 'Bearer ' + SUPABASE_KEY,
+    'Content-Type': 'application/json',
+    'Accept': 'application/json'
+  }, opts.headers || {});
+  var fetchOpts = { mode: 'cors', headers: headers };
+  if (opts.method) fetchOpts.method = opts.method;
+  if (opts.body) fetchOpts.body = opts.body;
+  // Wrap in a promise with manual timeout to avoid hanging
+  return new Promise(function(resolve, reject) {
+    var timer = setTimeout(function(){ reject(new Error('timeout')); }, 10000);
+    fetch(SUPABASE_URL + fullPath, fetchOpts)
+      .then(function(r){ clearTimeout(timer); resolve(r); })
+      .catch(function(e){ clearTimeout(timer); reject(e); });
+  });
 }
 
 function schedulePush() {
@@ -937,6 +941,134 @@ document.addEventListener('keydown',e=>{
   catBtn.style.cssText='background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.18);border-radius:8px;padding:7px 11px;font-family:Heebo,sans-serif;font-size:13px;font-weight:600;color:rgba(255,255,255,0.9);cursor:pointer';
   catBtn.textContent='\u2699\uFE0F';catBtn.title='\u05E0\u05D9\u05D4\u05D5\u05DC \u05E7\u05D8\u05D2\u05D5\u05E8\u05D9\u05D5\u05EA';catBtn.onclick=openCatMgr;btnGroup.appendChild(catBtn);
 })();
+
+
+// ════════════════════════════════════════════
+//  VOICE COMMANDS
+// ════════════════════════════════════════════
+var recognition = null;
+var isListening = false;
+
+function initVoice() {
+  var SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) return null;
+  var r = new SpeechRecognition();
+  r.lang = 'he-IL';
+  r.continuous = false;
+  r.interimResults = false;
+
+  r.onresult = function(e) {
+    var text = e.results[0][0].transcript.trim();
+    showVoiceToast('שמעתי: ' + text);
+    handleVoiceCommand(text);
+  };
+  r.onerror = function(e) {
+    showVoiceToast('שגיאה: ' + e.error);
+    stopListening();
+  };
+  r.onend = function() { stopListening(); };
+  return r;
+}
+
+function toggleVoice() {
+  if (isListening) { stopListening(); return; }
+  if (!recognition) recognition = initVoice();
+  if (!recognition) { showVoiceToast('הדפדפן לא תומך בפקודות קוליות'); return; }
+  isListening = true;
+  document.getElementById('mic-btn').classList.add('listening');
+  showVoiceToast('מאזין... דבר!');
+  recognition.start();
+}
+
+function stopListening() {
+  isListening = false;
+  var btn = document.getElementById('mic-btn');
+  if (btn) btn.classList.remove('listening');
+  if (recognition) { try { recognition.stop(); } catch(e) {} }
+}
+
+function showVoiceToast(msg) {
+  var t = document.getElementById('voice-toast');
+  if (!t) return;
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(window._voiceToastTimer);
+  window._voiceToastTimer = setTimeout(function(){ t.classList.remove('show'); }, 3000);
+}
+
+function handleVoiceCommand(text) {
+  var list = getCurrentList();
+  if (!list) { showVoiceToast('אין רשימה פעילה'); return; }
+
+  text = text.toLowerCase().trim();
+
+  // Patterns: "הוסף X", "חסר X", "אין X", "יש X", "קנה X", "מחק X", "הסר X"
+  var addPat   = /^(הוסף|להוסיף|קנה|לקנות)\s+(.+)/;
+  var needPat  = /^(חסר|אין|לקנות|צריך)\s+(.+)/;
+  var havePat  = /^(יש|יש לי|מצאתי|נמצא)\s+(.+)/;
+  var delPat   = /^(מחק|הסר|למחוק)\s+(.+)/;
+
+  var m;
+  if ((m = addPat.exec(text))) {
+    addItemByVoice(m[2], list);
+  } else if ((m = needPat.exec(text))) {
+    setStatusByVoice(m[2], 'need', list);
+  } else if ((m = havePat.exec(text))) {
+    setStatusByVoice(m[2], 'have', list);
+  } else if ((m = delPat.exec(text))) {
+    deleteItemByVoice(m[2], list);
+  } else {
+    // No keyword — try to find item and mark as need
+    setStatusByVoice(text, 'need', list);
+  }
+}
+
+function findItemByName(name, list) {
+  // Try exact match first, then partial
+  var items = list.items || [];
+  var exact = items.find(function(i){ return i.name.toLowerCase() === name; });
+  if (exact) return exact;
+  return items.find(function(i){ return i.name.toLowerCase().includes(name) || name.includes(i.name.toLowerCase()); });
+}
+
+function addItemByVoice(name, list) {
+  var existing = findItemByName(name, list);
+  if (existing) {
+    // Already exists — just mark as need
+    setStatusByVoice(name, 'need', list);
+    return;
+  }
+  // Add new item
+  updateCurrentList(function(l){
+    l.items.push({id:makeId(), name:name, category:'אחר', qty:'', note:'', status:'need', needQty:1});
+  });
+  renderAll();
+  showVoiceToast('➕ נוסף: ' + name);
+}
+
+function setStatusByVoice(name, status, list) {
+  var item = findItemByName(name, list);
+  if (!item) {
+    if (status === 'need') { addItemByVoice(name, list); return; }
+    showVoiceToast('לא נמצא: ' + name);
+    return;
+  }
+  updateCurrentList(function(l){
+    var it = l.items.find(function(i){ return i.id===item.id; });
+    if (it) { it.status = status; if(status==='need' && !it.needQty) it.needQty=1; }
+  });
+  renderAll();
+  var emoji = status==='need' ? '❌' : '✅';
+  showVoiceToast(emoji + ' ' + item.name);
+}
+
+function deleteItemByVoice(name, list) {
+  var item = findItemByName(name, list);
+  if (!item) { showVoiceToast('לא נמצא: ' + name); return; }
+  updateCurrentList(function(l){ l.items = l.items.filter(function(i){ return i.id !== item.id; }); });
+  renderAll();
+  showVoiceToast('??️ נמחק: ' + item.name);
+}
 
 // Set initial history state so back button can close modals
 history.replaceState({modal:null}, '');
