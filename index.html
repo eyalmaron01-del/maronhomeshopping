@@ -523,7 +523,7 @@ function renderItems() {
   if (query) items=items.filter(function(i){return i.name.toLowerCase().includes(query)||(i.note||'').toLowerCase().includes(query);});
   container.innerHTML = '';
   if (!items.length) {
-    container.innerHTML='<div class="empty-state"><div class="empty-icon">'+(query?'??':'✅')+'</div><div class="empty-text">'+(query?'לא נמצאו פריטים':'אין פריטים להצגה')+'</div></div>';
+    container.innerHTML='<div class="empty-state"><div class="empty-icon">'+(query?'✅':'✅')+'</div><div class="empty-text">'+(query?'לא נמצאו פריטים':'אין פריטים להצגה')+'</div></div>';
     return;
   }
   var grouped={};
@@ -1035,7 +1035,7 @@ function vcExecute(text) {
   pausePollingUntil = Date.now() + 6000;
   renderAll();
 
-  var emoji = isDel ? '??️' : action === 'need' ? '❌' : '✅';
+  var emoji = isDel ? '🗑️' : action === 'need' ? '❌' : '✅';
   var label = found.map(function(f){ return f.name + (f.qty > 1 ? ' ×' + f.qty : ''); }).join(', ');
   vcMsg(emoji + ' ' + label, 3000);
 }
@@ -1082,7 +1082,7 @@ function _vcStart() {
         var t = e.results[i][0].transcript.trim();
         if (t) {
           _vcSegs.push(t);
-          vcMsg('?? ' + t, 5000);
+          vcMsg('🎤 ' + t, 5000);
           // Reset silence timer on each new final result
           clearTimeout(_vcSil);
           _vcSil = setTimeout(function(){ _vcStop(true); }, 3000);
@@ -1090,7 +1090,7 @@ function _vcStart() {
       } else {
         // Show interim
         var interim = e.results[i][0].transcript.trim();
-        if (interim) vcMsg('?? ' + interim + '...', 5000);
+        if (interim) vcMsg('🎤 ' + interim + '...', 5000);
       }
     }
   };
@@ -1111,7 +1111,7 @@ function _vcStart() {
   _vcSegs = [];
   clearTimeout(_vcSil);
   document.getElementById('mic-btn').classList.add('on');
-  vcMsg('?? מאזין... לחץ שוב לסיום', 20000);
+  vcMsg('🎤 מאזין... לחץ שוב לסיום', 20000);
 
   // Auto-cancel after 20s with zero speech
   setTimeout(function(){
