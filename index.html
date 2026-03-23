@@ -122,12 +122,12 @@ main{padding:12px;max-width:680px;margin:0 auto;padding-bottom:90px}
 .move-item-row:last-child{border-bottom:none}
 .move-select{padding:5px 9px;border:1.5px solid var(--border);border-radius:8px;font-family:'Heebo',sans-serif;font-size:13px;background:var(--bg);color:var(--text);direction:rtl;outline:none;cursor:pointer}
 .move-select:focus{border-color:var(--accent)}
-@media(max-width:480px){.item-name{font-size:14px}
-  .mic-btn{position:fixed;bottom:22px;left:22px;width:52px;height:52px;border-radius:50%;background:var(--text);border:none;color:white;font-size:22px;cursor:pointer;box-shadow:var(--shadow-lg);z-index:200;display:flex;align-items:center;justify-content:center;transition:all 0.2s}
-  .mic-btn.listening{background:var(--red);animation:micpulse 1s infinite}
-  @keyframes micpulse{0%,100%{transform:scale(1);box-shadow:0 0 0 0 rgba(192,57,43,0.4)}50%{transform:scale(1.08);box-shadow:0 0 0 10px rgba(192,57,43,0)}}
-  .voice-toast{position:fixed;top:80px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.85);color:white;padding:10px 20px;border-radius:50px;font-size:14px;font-weight:600;z-index:500;pointer-events:none;white-space:nowrap;opacity:0;transition:opacity 0.25s;max-width:90vw;overflow:hidden;text-overflow:ellipsis}
-  .voice-toast.show{opacity:1}.status-btn{width:38px;height:30px;font-size:15px}}50%{transform:scale(1.08);box-shadow:0 0 0 10px rgba(192,57,43,0)}}
+@media(max-width:480px){.item-name{font-size:14px}50%{transform:scale(1.08);box-shadow:0 0 0 10px rgba(192,57,43,0)}}.status-btn{width:38px;height:30px;font-size:15px}}50%{transform:scale(1.08);box-shadow:0 0 0 10px rgba(192,57,43,0)}}
+
+  .mic-btn{position:fixed;bottom:22px;left:22px;width:54px;height:54px;border-radius:50%;background:var(--text);border:none;color:white;font-size:22px;cursor:pointer;box-shadow:var(--shadow-lg);z-index:200;display:flex;align-items:center;justify-content:center;transition:background 0.2s,transform 0.2s}
+  .mic-btn.on{background:var(--red);transform:scale(1.08)}
+  .vtag{position:fixed;top:80px;left:50%;transform:translateX(-50%);background:rgba(26,23,20,0.88);color:#fff;padding:9px 20px;border-radius:40px;font-size:14px;font-weight:600;z-index:500;pointer-events:none;white-space:nowrap;max-width:88vw;overflow:hidden;text-overflow:ellipsis;opacity:0;transition:opacity 0.2s}
+  .vtag.show{opacity:1}
 </style>
 </head>
 <body>
@@ -160,8 +160,8 @@ main{padding:12px;max-width:680px;margin:0 auto;padding-bottom:90px}
 <div class="category-tabs" id="category-tabs"></div>
 <main id="items-container"></main>
 
-<button class="mic-btn" id="mic-btn" onclick="toggleVoice()" title="פקודה קולית">??</button>
-<div class="voice-toast" id="voice-toast"></div>
+<button class="mic-btn" id="mic-btn" onclick="vcToggle()">??</button>
+<div class="vtag" id="vtag"></div>
 <button class="add-fab" onclick="openAddModal()"><span class="plus">+</span> &#x05D4;&#x05D5;&#x05E1;&#x05E4;&#x05EA; &#x05E4;&#x05E8;&#x05D9;&#x05D8;</button>
 <div class="modal-overlay" id="item-modal" onclick="closeModalOnOverlay(event,'item-modal')">
   <div class="modal">
@@ -944,183 +944,197 @@ document.addEventListener('keydown',e=>{
 })();
 
 
+
 // ════════════════════════════════════════════
 //  VOICE COMMANDS
 // ════════════════════════════════════════════
-(function() {
-  var recog = null;
-  var active = false;
-  var segments = [];
-  var silenceTimer = null;
+var _HW={'אחת':1,'אחד':1,'שתיים':2,'שני':2,'שניים':2,'שלוש':3,'שלושה':3,'ארבע':4,'ארבעה':4,'חמש':5,'חמישה':5,'שש':6,'ששה':6,'שבע':7,'שבעה':7,'שמונה':8,'תשע':9,'תשעה':9,'עשר':10};
 
-  function build() {
-    var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) return null;
-    var r = new SR();
-    r.lang = 'he-IL';
-    r.continuous = true;       // let browser manage the stream
-    r.interimResults = true;   // get interim so we can show feedback
-    r.maxAlternatives = 1;
-
-    r.onresult = function(e) {
-      // Find the latest final result
-      for (var i = e.resultIndex; i < e.results.length; i++) {
-        if (e.results[i].isFinal) {
-          var t = e.results[i][0].transcript.trim();
-          if (t) {
-            segments.push(t);
-            showVoiceToast('\uD83C\uDFA4 ' + t);
-            // Reset silence timer — process 3s after last speech
-            clearTimeout(silenceTimer);
-            silenceTimer = setTimeout(doProcess, 3000);
-          }
-        } else {
-          // Show interim feedback
-          var interim = e.results[i][0].transcript;
-          if (interim) showVoiceToast('\uD83C\uDFA4 ' + interim + '...');
+// Find all items from the list inside spoken text, with quantity
+function vcFindItems(text, list) {
+  var tl = text.toLowerCase();
+  // Sort longest names first — prevents partial matches
+  var sorted = list.items.slice().sort(function(a,b){ return b.name.length - a.name.length; });
+  var used = [], found = [];
+  sorted.forEach(function(item) {
+    var nl = item.name.toLowerCase();
+    var idx = tl.indexOf(nl);
+    if (idx === -1) return;
+    if (used.some(function(u){ return idx < u.e && idx+nl.length > u.s; })) return;
+    var end = idx + nl.length, qty = 1;
+    // digit after: "אורז 4"
+    var a = tl.slice(end).match(/^\s*(\d+)/);
+    if (a) { qty = parseInt(a[1], 10); end += a[0].length; }
+    else {
+      // digit before: "4 אורז"
+      var b = tl.slice(0, idx).match(/(\d+)\s*$/);
+      if (b) { qty = parseInt(b[1], 10); }
+      else {
+        // Hebrew word after: "אורז שלוש"
+        var aw = tl.slice(end).match(/^\s*([\u05D0-\u05EA]+)/);
+        if (aw && _HW[aw[1]]) { qty = _HW[aw[1]]; end += aw[0].length; }
+        else {
+          // Hebrew word before: "שלוש אורז"
+          var bw = tl.slice(0, idx).match(/([\u05D0-\u05EA]+)\s*$/);
+          if (bw && _HW[bw[1]]) qty = _HW[bw[1]];
         }
       }
-    };
+    }
+    used.push({s:idx, e:end});
+    found.push({id:item.id, name:item.name, qty:qty});
+  });
+  return found;
+}
 
-    r.onerror = function(e) {
-      if (e.error === 'no-speech') return; // ignore, continuous mode handles it
-      if (e.error === 'aborted') return;   // we aborted intentionally
-      showVoiceToast('\u05E9\u05D2\u05D9\u05D0\u05D4: ' + e.error);
-      doStop(false);
-    };
+// Parse spoken text and apply updates
+function vcExecute(text) {
+  var list = getCurrentList();
+  if (!list) return;
+  var orig = text;
+  text = text.toLowerCase().trim();
 
-    r.onend = function() {
-      // In continuous mode, onend means something went wrong
-      // Only restart if still active and user hasn't stopped
-      if (active) {
-        // Small delay before restart to avoid tight loops
-        setTimeout(function() {
-          if (active) {
-            try { recog.start(); } catch(ex) {}
-          }
-        }, 500);
-      }
-    };
-
-    return r;
-  }
-
-  function doStop(andProcess) {
-    active = false;
-    clearTimeout(silenceTimer);
-    silenceTimer = null;
-    document.getElementById('mic-btn').classList.remove('listening');
-    try { recog.abort(); } catch(ex) {}
-    var segs = segments.slice();
-    segments = [];
-    if (andProcess && segs.length > 0) {
-      vcExecute(segs.join(' ').trim());
+  // Detect action keyword at start
+  var action = 'need', isDel = false, m;
+  var KW = [
+    [/^(חסר|אין|צריך|לקנות)\s+/, 'need'],
+    [/^(יש|יש לי|מצאתי|נמצא)\s+/, 'have'],
+    [/^(הוסף|קנה|להוסיף)\s+/, 'need'],
+    [/^(מחק|הסר|למחוק)\s+/, 'del']
+  ];
+  for (var i = 0; i < KW.length; i++) {
+    m = KW[i][0].exec(text);
+    if (m) {
+      if (KW[i][1] === 'del') isDel = true;
+      else action = KW[i][1];
+      text = text.slice(m[0].length);
+      break;
     }
   }
 
-  function doProcess() { doStop(true); }
+  var found = vcFindItems(text, list);
+  if (!found.length) { vcMsg('לא זיהיתי: ' + orig, 4000); return; }
 
-  window.toggleVoice = function() {
-    if (active) {
-      doProcess();
-      return;
-    }
-    // Start
-    recog = build();
-    if (!recog) { showVoiceToast('\u05D4\u05D3\u05E4\u05D3\u05E4\u05DF \u05DC\u05D0 \u05EA\u05D5\u05DE\u05DA'); return; }
-    active = true;
-    segments = [];
-    clearTimeout(silenceTimer);
-    document.getElementById('mic-btn').classList.add('listening');
-    showVoiceToast('\uD83C\uDFA4 \u05DE\u05D0\u05D6\u05D9\u05DF... \u05DC\u05D7\u05E5 \u05E9\u05D5\u05D1 \u05DC\u05E1\u05D9\u05D5\u05DD');
-    // Auto-cancel after 20s with no speech
-    setTimeout(function() {
-      if (active && segments.length === 0) {
-        showVoiceToast('\u05D1\u05D5\u05D8\u05DC - \u05DC\u05D0 \u05D6\u05D9\u05D4\u05D9\u05EA\u05D9 \u05E7\u05D5\u05DC');
-        doStop(false);
+  updateCurrentList(function(l) {
+    found.forEach(function(f) {
+      if (isDel) { l.items = l.items.filter(function(i){ return i.id !== f.id; }); return; }
+      var it = l.items.find(function(i){ return i.id === f.id; });
+      if (!it) {
+        if (action === 'need')
+          l.items.push({id:makeId(), name:f.name, category:'אחר', qty:'', note:'', status:'need', needQty:f.qty});
+        return;
       }
-    }, 20000);
-    try { recog.start(); } catch(ex) {
-      showVoiceToast('\u05E9\u05D2\u05D9\u05D0\u05D4 \u05D1\u05D4\u05E4\u05E2\u05DC\u05D4');
-      active = false;
-      document.getElementById('mic-btn').classList.remove('listening');
+      it.status = action;
+      if (action === 'need') it.needQty = f.qty;
+    });
+  });
+
+  pausePollingUntil = Date.now() + 6000;
+  renderAll();
+
+  var emoji = isDel ? '??️' : action === 'need' ? '❌' : '✅';
+  var label = found.map(function(f){ return f.name + (f.qty > 1 ? ' ×' + f.qty : ''); }).join(', ');
+  vcMsg(emoji + ' ' + label, 3000);
+}
+
+// Show floating message
+function vcMsg(text, ms) {
+  var el = document.getElementById('vtag');
+  if (!el) return;
+  el.textContent = text;
+  el.classList.add('show');
+  clearTimeout(window._vcMsgT);
+  window._vcMsgT = setTimeout(function(){ el.classList.remove('show'); }, ms || 3000);
+}
+
+// ── Recognition ───────────────────────────────────────
+// Strategy: continuous=true, interimResults=true
+// Tap once  → start. Mic button turns red.
+// Tap again → stop + process immediately.
+// Silence   → auto-stop + process after 3s.
+// No restart logic at all — continuous mode handles continuity.
+
+var _vc = null;      // SpeechRecognition instance
+var _vcOn = false;   // are we listening?
+var _vcSegs = [];    // collected final transcripts
+var _vcSil = null;   // silence timer
+
+function vcToggle() {
+  if (_vcOn) { _vcStop(true); } else { _vcStart(); }
+}
+
+function _vcStart() {
+  var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) { vcMsg('הדפדפן לא תומך בזיהוי קול', 3000); return; }
+
+  _vc = new SR();
+  _vc.lang = 'he-IL';
+  _vc.continuous = true;
+  _vc.interimResults = true;
+  _vc.maxAlternatives = 1;
+
+  _vc.onresult = function(e) {
+    for (var i = e.resultIndex; i < e.results.length; i++) {
+      if (e.results[i].isFinal) {
+        var t = e.results[i][0].transcript.trim();
+        if (t) {
+          _vcSegs.push(t);
+          vcMsg('?? ' + t, 5000);
+          // Reset silence timer on each new final result
+          clearTimeout(_vcSil);
+          _vcSil = setTimeout(function(){ _vcStop(true); }, 3000);
+        }
+      } else {
+        // Show interim
+        var interim = e.results[i][0].transcript.trim();
+        if (interim) vcMsg('?? ' + interim + '...', 5000);
+      }
     }
   };
 
-  function showVoiceToast(msg) {
-    var t = document.getElementById('voice-toast');
-    if (!t) return;
-    t.textContent = msg;
-    t.classList.add('show');
-    clearTimeout(window._vtTimer);
-    window._vtTimer = setTimeout(function(){ t.classList.remove('show'); }, 3500);
+  _vc.onerror = function(e) {
+    if (e.error === 'no-speech' || e.error === 'aborted') return;
+    vcMsg('שגיאה: ' + e.error, 3000);
+    _vcStop(false);
+  };
+
+  _vc.onend = function() {
+    // continuous=true should never call onend unless we stopped it
+    // If it does fire unexpectedly (e.g. network), just clean up
+    if (_vcOn) _vcStop(_vcSegs.length > 0);
+  };
+
+  _vcOn = true;
+  _vcSegs = [];
+  clearTimeout(_vcSil);
+  document.getElementById('mic-btn').classList.add('on');
+  vcMsg('?? מאזין... לחץ שוב לסיום', 20000);
+
+  // Auto-cancel after 20s with zero speech
+  setTimeout(function(){
+    if (_vcOn && _vcSegs.length === 0) _vcStop(false);
+  }, 20000);
+
+  try { _vc.start(); } catch(ex) {
+    _vcOn = false;
+    document.getElementById('mic-btn').classList.remove('on');
+    vcMsg('שגיאה בהתחלה', 3000);
   }
+}
 
-  function vcExecute(text) {
-    var list = getCurrentList();
-    if (!list) { showVoiceToast('\u05D0\u05D9\u05DF \u05E8\u05E9\u05D9\u05DE\u05D4 \u05E4\u05E2\u05D9\u05DC\u05D4'); return; }
-    var orig = text;
-    text = text.toLowerCase().trim();
-
-    var action = 'need', isDel = false, m;
-    if      ((m=/^(\u05D7\u05E1\u05E8|\u05D0\u05D9\u05DF|\u05E6\u05E8\u05D9\u05DA|\u05DC\u05E7\u05E0\u05D5\u05EA)\s+/.exec(text))) { action='need'; text=text.slice(m[0].length); }
-    else if ((m=/^(\u05D9\u05E9|\u05D9\u05E9 \u05DC\u05D9|\u05DE\u05E6\u05D0\u05EA\u05D9|\u05E0\u05DE\u05E6\u05D0)\s+/.exec(text))) { action='have'; text=text.slice(m[0].length); }
-    else if ((m=/^(\u05D4\u05D5\u05E1\u05E3|\u05E7\u05E0\u05D4|\u05DC\u05D4\u05D5\u05E1\u05D9\u05E3)\s+/.exec(text))) { action='need'; text=text.slice(m[0].length); }
-    else if ((m=/^(\u05DE\u05D7\u05E7|\u05D4\u05E1\u05E8|\u05DC\u05DE\u05D7\u05D5\u05E7)\s+/.exec(text))) { isDel=true; text=text.slice(m[0].length); }
-
-    var found = vcFindItems(text, list);
-    if (!found.length) { showVoiceToast('\u05DC\u05D0 \u05D6\u05D9\u05D4\u05D9\u05EA\u05D9: '+orig); return; }
-
-    updateCurrentList(function(l) {
-      found.forEach(function(f) {
-        if (isDel) { l.items=l.items.filter(function(i){return i.id!==f.id;}); return; }
-        var it = l.items.find(function(i){return i.id===f.id;});
-        if (!it) {
-          if (action==='need') l.items.push({id:makeId(),name:f.name,category:'\u05D0\u05D7\u05E8',qty:'',note:'',status:'need',needQty:f.qty});
-          return;
-        }
-        it.status=action;
-        if (action==='need') it.needQty=f.qty;
-      });
-    });
-
-    pausePollingUntil = Date.now() + 6000;
-    renderAll();
-
-    var emoji = isDel?'\uD83D\uDDD1\uFE0F':action==='need'?'\u274C':'\u2705';
-    showVoiceToast(emoji+' '+found.map(function(f){return f.name+(f.qty>1?' \u00D7'+f.qty:'');}).join(', '));
+function _vcStop(andProcess) {
+  _vcOn = false;
+  clearTimeout(_vcSil);
+  _vcSil = null;
+  document.getElementById('mic-btn').classList.remove('on');
+  try { _vc.stop(); } catch(ex) {}
+  var segs = _vcSegs.slice();
+  _vcSegs = [];
+  if (andProcess && segs.length > 0) {
+    vcExecute(segs.join(' ').trim());
+  } else if (!andProcess) {
+    vcMsg('', 0);
   }
-
-  function vcFindItems(text, list) {
-    var sorted = list.items.slice().sort(function(a,b){return b.name.length-a.name.length;});
-    var tl = text.toLowerCase();
-    var used=[], results=[];
-    var HW={'\u05D0\u05D7\u05EA':1,'\u05D0\u05D7\u05D3':1,'\u05E9\u05EA\u05D9\u05D9\u05DD':2,'\u05E9\u05E0\u05D9':2,'\u05E9\u05E0\u05D9\u05D9\u05DD':2,'\u05E9\u05DC\u05D5\u05E9':3,'\u05E9\u05DC\u05D5\u05E9\u05D4':3,'\u05D0\u05E8\u05D1\u05E2':4,'\u05D0\u05E8\u05D1\u05E2\u05D4':4,'\u05D7\u05DE\u05E9':5,'\u05D7\u05DE\u05D9\u05E9\u05D4':5,'\u05E9\u05E9':6,'\u05E9\u05E9\u05D4':6,'\u05E9\u05D1\u05E2':7,'\u05E9\u05D1\u05E2\u05D4':7,'\u05E9\u05DE\u05D5\u05E0\u05D4':8,'\u05EA\u05E9\u05E2':9,'\u05EA\u05E9\u05E2\u05D4':9,'\u05E2\u05E9\u05E8':10};
-
-    sorted.forEach(function(item) {
-      var nl=item.name.toLowerCase(), idx=tl.indexOf(nl);
-      if (idx===-1) return;
-      if (used.some(function(u){return idx<u.end&&idx+nl.length>u.start;})) return;
-      var end=idx+nl.length, qty=1;
-      var am=tl.slice(end).match(/^\s*(\d+)/);
-      if (am){qty=parseInt(am[1],10);end+=am[0].length;}
-      else{
-        var bm=tl.slice(0,idx).match(/(\d+)\s*$/);
-        if(bm){qty=parseInt(bm[1],10);}
-        else{
-          var aw=tl.slice(end).match(/^\s*([\u05D0-\u05EA]+)/);
-          var bw=tl.slice(0,idx).match(/([\u05D0-\u05EA]+)\s*$/);
-          if(aw&&HW[aw[1]]){qty=HW[aw[1]];end+=aw[0].length;}
-          else if(bw&&HW[bw[1]])qty=HW[bw[1]];
-        }
-      }
-      used.push({start:idx,end:end});
-      results.push({id:item.id,name:item.name,qty:qty});
-    });
-    return results;
-  }
-
-})();
+}
 
 // Set initial history state so back button can close modals
 history.replaceState({modal:null}, '');
