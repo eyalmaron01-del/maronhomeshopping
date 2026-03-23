@@ -122,12 +122,12 @@ main{padding:12px;max-width:680px;margin:0 auto;padding-bottom:90px}
 .move-item-row:last-child{border-bottom:none}
 .move-select{padding:5px 9px;border:1.5px solid var(--border);border-radius:8px;font-family:'Heebo',sans-serif;font-size:13px;background:var(--bg);color:var(--text);direction:rtl;outline:none;cursor:pointer}
 .move-select:focus{border-color:var(--accent)}
-@media(max-width:480px){.item-name{font-size:14px}.status-btn{width:38px;height:30px;font-size:15px}}
+@media(max-width:480px){.item-name{font-size:14px}
   .mic-btn{position:fixed;bottom:22px;left:22px;width:52px;height:52px;border-radius:50%;background:var(--text);border:none;color:white;font-size:22px;cursor:pointer;box-shadow:var(--shadow-lg);z-index:200;display:flex;align-items:center;justify-content:center;transition:all 0.2s}
-  .mic-btn.listening{background:var(--red);animation:pulse 1s infinite}
-  @keyframes pulse{0%,100%{transform:scale(1);box-shadow:0 0 0 0 rgba(192,57,43,0.4)}50%{transform:scale(1.08);box-shadow:0 0 0 10px rgba(192,57,43,0)}}
-  .voice-toast{position:fixed;top:80px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.85);color:white;padding:10px 20px;border-radius:50px;font-size:14px;font-weight:600;z-index:500;pointer-events:none;white-space:nowrap;opacity:0;transition:opacity 0.2s}
-  .voice-toast.show{opacity:1}
+  .mic-btn.listening{background:var(--red);animation:micpulse 1s infinite}
+  @keyframes micpulse{0%,100%{transform:scale(1);box-shadow:0 0 0 0 rgba(192,57,43,0.4)}50%{transform:scale(1.08);box-shadow:0 0 0 10px rgba(192,57,43,0)}}
+  .voice-toast{position:fixed;top:80px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.85);color:white;padding:10px 20px;border-radius:50px;font-size:14px;font-weight:600;z-index:500;pointer-events:none;white-space:nowrap;opacity:0;transition:opacity 0.25s;max-width:90vw;overflow:hidden;text-overflow:ellipsis}
+  .voice-toast.show{opacity:1}.status-btn{width:38px;height:30px;font-size:15px}}50%{transform:scale(1.08);box-shadow:0 0 0 10px rgba(192,57,43,0)}}
 </style>
 </head>
 <body>
@@ -159,9 +159,10 @@ main{padding:12px;max-width:680px;margin:0 auto;padding-bottom:90px}
 </div>
 <div class="category-tabs" id="category-tabs"></div>
 <main id="items-container"></main>
-<button class="add-fab" onclick="openAddModal()"><span class="plus">+</span> &#x05D4;&#x05D5;&#x05E1;&#x05E4;&#x05EA; &#x05E4;&#x05E8;&#x05D9;&#x05D8;</button>
-<button class="mic-btn" id="mic-btn" onclick="toggleVoice()" title="פקודה קולית">🎤</button>
+
+<button class="mic-btn" id="mic-btn" onclick="toggleVoice()" title="פקודה קולית">??</button>
 <div class="voice-toast" id="voice-toast"></div>
+<button class="add-fab" onclick="openAddModal()"><span class="plus">+</span> &#x05D4;&#x05D5;&#x05E1;&#x05E4;&#x05EA; &#x05E4;&#x05E8;&#x05D9;&#x05D8;</button>
 <div class="modal-overlay" id="item-modal" onclick="closeModalOnOverlay(event,'item-modal')">
   <div class="modal">
     <div class="modal-handle"></div>
@@ -946,12 +947,15 @@ document.addEventListener('keydown',e=>{
 // ════════════════════════════════════════════
 //  VOICE COMMANDS
 // ════════════════════════════════════════════
-var recog = null;
-var voiceActive = false;
-var voiceSegments = [];
-var voiceSilenceTimer = null;
+(function() {
 
-function initRecog() {
+var active = false;
+var segments = [];
+var silenceTimer = null;
+var restartTimer = null;
+var recog = null;
+
+function makeRecog() {
   var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) return null;
   var r = new SR();
@@ -962,73 +966,85 @@ function initRecog() {
 
   r.onresult = function(e) {
     var t = e.results[0][0].transcript.trim();
-    voiceSegments.push(t);
-    showVoiceToast('\uD83C\uDFA4 ' + t);
-    // Reset silence timer — user may say more
-    clearTimeout(voiceSilenceTimer);
-    voiceSilenceTimer = setTimeout(processVoice, 3500);
-    // Restart to keep listening
-    if (voiceActive) setTimeout(restartRecog, 150);
+    if (!t) return;
+    segments.push(t);
+    showVoiceToast('?? ' + t);
+    // Reset silence timer — auto-process 3.5s after last speech
+    clearTimeout(silenceTimer);
+    silenceTimer = setTimeout(doProcess, 3500);
+    // Schedule restart so we keep listening
+    scheduleRestart();
   };
 
   r.onerror = function(e) {
     if (e.error === 'no-speech' || e.error === 'aborted') {
-      if (voiceActive) setTimeout(restartRecog, 150);
+      scheduleRestart();
     } else {
-      showVoiceToast('\u05E9\u05D2\u05D9\u05D0\u05D4: ' + e.error);
-      stopVoice(false);
+      showVoiceToast('שגיאה: ' + e.error);
+      doStop(false);
     }
   };
 
   r.onend = function() {
-    if (voiceActive) setTimeout(restartRecog, 150);
+    scheduleRestart();
   };
 
   return r;
 }
 
-function restartRecog() {
-  if (!voiceActive) return;
-  try { recog.start(); } catch(ex) {
-    // If can't restart, reinit
-    recog = initRecog();
-    if (recog) try { recog.start(); } catch(ex2) { stopVoice(false); }
-  }
+function scheduleRestart() {
+  if (!active) return;
+  clearTimeout(restartTimer);
+  restartTimer = setTimeout(function() {
+    if (!active) return;
+    try {
+      recog.start();
+    } catch(ex) {
+      // recog in bad state — reinit
+      recog = makeRecog();
+      if (recog) {
+        try { recog.start(); } catch(ex2) { doStop(false); }
+      }
+    }
+  }, 250);
 }
 
-function toggleVoice() {
-  if (voiceActive) { processVoice(); } else { startVoice(); }
-}
-
-function startVoice() {
-  if (!recog) recog = initRecog();
-  if (!recog) { showVoiceToast('\u05D4\u05D3\u05E4\u05D3\u05E4\u05DF \u05DC\u05D0 \u05EA\u05D5\u05DE\u05DA'); return; }
-  voiceActive = true;
-  voiceSegments = [];
-  clearTimeout(voiceSilenceTimer);
-  document.getElementById('mic-btn').classList.add('listening');
-  showVoiceToast('\uD83C\uDFA4 \u05DE\u05D0\u05D6\u05D9\u05DF... \u05DC\u05D7\u05E5 \u05E9\u05D5\u05D1 \u05DC\u05E1\u05D9\u05D5\u05DD');
-  // Auto-cancel after 15s with no speech
-  setTimeout(function(){ if(voiceActive && voiceSegments.length===0) stopVoice(false); }, 15000);
-  try { recog.start(); } catch(ex) { recog = initRecog(); if(recog) recog.start(); }
-}
-
-function stopVoice(andProcess) {
-  voiceActive = false;
-  clearTimeout(voiceSilenceTimer);
-  document.getElementById('mic-btn').classList.remove('listening');
+function doStop(andProcess) {
+  active = false;
+  clearTimeout(silenceTimer);
+  clearTimeout(restartTimer);
+  silenceTimer = null;
+  restartTimer = null;
   try { recog.abort(); } catch(ex) {}
-  if (andProcess && voiceSegments.length > 0) {
-    var text = voiceSegments.join(' ').trim();
-    voiceSegments = [];
-    handleVoiceCommand(text);
-  } else {
-    if (!andProcess && voiceSegments.length === 0) showVoiceToast('\u05D1\u05D5\u05D8\u05DC');
-    voiceSegments = [];
+  document.getElementById('mic-btn').classList.remove('listening');
+  var segs = segments.slice();
+  segments = [];
+  if (andProcess && segs.length > 0) {
+    vcExecute(segs.join(' ').trim());
   }
 }
 
-function processVoice() { stopVoice(true); }
+function doProcess() { doStop(true); }
+
+window.toggleVoice = function() {
+  if (active) {
+    doProcess();
+  } else {
+    recog = makeRecog();
+    if (!recog) { showVoiceToast('הדפדפן לא תומך'); return; }
+    active = true;
+    segments = [];
+    clearTimeout(silenceTimer);
+    clearTimeout(restartTimer);
+    document.getElementById('mic-btn').classList.add('listening');
+    showVoiceToast('?? מאזין... לחץ שוב לסיום');
+    // Auto-cancel after 15s if no speech at all
+    setTimeout(function() {
+      if (active && segments.length === 0) doStop(false);
+    }, 15000);
+    try { recog.start(); } catch(ex) { doStop(false); }
+  }
+};
 
 function showVoiceToast(msg) {
   var t = document.getElementById('voice-toast');
@@ -1039,85 +1055,107 @@ function showVoiceToast(msg) {
   window._vtTimer = setTimeout(function(){ t.classList.remove('show'); }, 3500);
 }
 
-function handleVoiceCommand(text) {
+function vcExecute(text) {
   var list = getCurrentList();
-  if (!list) { showVoiceToast('\u05D0\u05D9\u05DF \u05E8\u05E9\u05D9\u05DE\u05D4 \u05E4\u05E2\u05D9\u05DC\u05D4'); return; }
+  if (!list) { showVoiceToast('אין רשימה פעילה'); return; }
+
   var orig = text;
   text = text.toLowerCase().trim();
 
-  var status = 'need', isDel = false, kw;
-  var needRe = /^(\u05D7\u05E1\u05E8|\u05D0\u05D9\u05DF|\u05E6\u05E8\u05D9\u05DA|\u05DC\u05E7\u05E0\u05D5\u05EA)\s+/;
-  var haveRe = /^(\u05D9\u05E9|\u05D9\u05E9 \u05DC\u05D9|\u05DE\u05E6\u05D0\u05EA\u05D9|\u05E0\u05DE\u05E6\u05D0)\s+/;
-  var addRe  = /^(\u05D4\u05D5\u05E1\u05E3|\u05E7\u05E0\u05D4|\u05DC\u05D4\u05D5\u05E1\u05D9\u05E3)\s+/;
-  var delRe  = /^(\u05DE\u05D7\u05E7|\u05D4\u05E1\u05E8|\u05DC\u05DE\u05D7\u05D5\u05E7)\s+/;
+  // Detect action keyword
+  var action = 'need';
+  var isDel = false;
+  var m;
+  var needRe = /^(חסר|אין|צריך|לקנות)\s+/;
+  var haveRe = /^(יש|יש לי|מצאתי|נמצא)\s+/;
+  var addRe  = /^(הוסף|קנה|להוסיף)\s+/;
+  var delRe  = /^(מחק|הסר|למחוק)\s+/;
 
-  if      ((kw=needRe.exec(text))) { status='need'; text=text.slice(kw[0].length); }
-  else if ((kw=haveRe.exec(text))) { status='have'; text=text.slice(kw[0].length); }
-  else if ((kw=addRe.exec(text)))  { status='need'; text=text.slice(kw[0].length); }
-  else if ((kw=delRe.exec(text)))  { isDel=true;    text=text.slice(kw[0].length); }
+  if      ((m = needRe.exec(text))) { action='need'; text=text.slice(m[0].length); }
+  else if ((m = haveRe.exec(text))) { action='have'; text=text.slice(m[0].length); }
+  else if ((m = addRe.exec(text)))  { action='need'; text=text.slice(m[0].length); }
+  else if ((m = delRe.exec(text)))  { isDel=true;    text=text.slice(m[0].length); }
 
-  var found = findItemsInText(text, list);
-  if (found.length === 0) { showVoiceToast('\u05DC\u05D0 \u05D6\u05D9\u05D4\u05D9\u05EA\u05D9: ' + orig); return; }
+  var found = vcFindItems(text, list);
+  if (found.length === 0) { showVoiceToast('לא זיהיתי: ' + orig); return; }
 
   updateCurrentList(function(l) {
     found.forEach(function(f) {
       if (isDel) {
-        l.items = l.items.filter(function(i){ return i.id!==f.id; });
+        l.items = l.items.filter(function(i){ return i.id !== f.id; });
         return;
       }
-      var it = l.items.find(function(i){ return i.id===f.id; });
+      var it = l.items.find(function(i){ return i.id === f.id; });
       if (!it) {
-        if (status==='need') l.items.push({id:makeId(),name:f.name,category:'\u05D0\u05D7\u05E8',qty:'',note:'',status:'need',needQty:f.qty});
+        if (action === 'need') {
+          l.items.push({id:makeId(), name:f.name, category:'אחר', qty:'', note:'', status:'need', needQty:f.qty});
+        }
         return;
       }
-      it.status = status;
-      if (status==='need') it.needQty = f.qty;
+      it.status = action;
+      if (action === 'need') it.needQty = f.qty;
     });
   });
 
-  // Pause polling so remote doesn't overwrite fresh local data
   pausePollingUntil = Date.now() + 6000;
   renderAll();
 
-  var emoji = isDel ? '\uD83D\uDDD1\uFE0F' : status==='need' ? '\u274C' : '\u2705';
-  var names = found.map(function(f){ return f.name+(f.qty>1?' \u00D7'+f.qty:''); }).join(', ');
+  var emoji = isDel ? '??️' : action==='need' ? '❌' : '✅';
+  var names = found.map(function(f){ return f.name + (f.qty > 1 ? ' ×'+f.qty : ''); }).join(', ');
   showVoiceToast(emoji + ' ' + names);
 }
 
-function findItemsInText(text, list) {
-  var sorted = list.items.slice().sort(function(a,b){ return b.name.length-a.name.length; });
+function vcFindItems(text, list) {
+  // Sort longest names first to prevent partial matches
+  var sorted = list.items.slice().sort(function(a,b){ return b.name.length - a.name.length; });
   var tl = text.toLowerCase();
-  var used = [], results = [];
+  var used = [];
+  var results = [];
+
+  var HW = {
+    'אחת':1,'אחד':1,
+    'שתיים':2,'שני':2,'שניים':2,
+    'שלוש':3,'שלושה':3,
+    'ארבע':4,'ארבעה':4,
+    'חמש':5,'חמישה':5,
+    'שש':6,'ששה':6,
+    'שבע':7,'שבעה':7,
+    'שמונה':8,
+    'תשע':9,'תשעה':9,
+    'עשר':10
+  };
 
   sorted.forEach(function(item) {
     var nl = item.name.toLowerCase();
     var idx = tl.indexOf(nl);
     if (idx === -1) return;
-    if (used.some(function(u){ return idx<u.end && idx+nl.length>u.start; })) return;
+    // Skip if overlaps with already matched range
+    if (used.some(function(u){ return idx < u.end && idx+nl.length > u.start; })) return;
 
     var end = idx + nl.length;
     var qty = 1;
+    var matched = false;
 
-    // Number after: "אורז 4"
+    // Digit after: "אורז 4"
     var am = tl.slice(end).match(/^\s*(\d+)/);
-    if (am) { qty=parseInt(am[1]); end+=am[0].length; }
-    else {
-      // Number before: "4 אורז"
+    if (am) { qty=parseInt(am[1],10); end+=am[0].length; matched=true; }
+
+    // Digit before: "4 אורז"
+    if (!matched) {
       var bm = tl.slice(0,idx).match(/(\d+)\s*$/);
-      if (bm) qty=parseInt(bm[1]);
+      if (bm) { qty=parseInt(bm[1],10); matched=true; }
     }
 
-    // Hebrew number words
-    if (qty===1) {
-      var hw={'\u05D0\u05D7\u05EA':1,'\u05D0\u05D7\u05D3':1,'\u05E9\u05EA\u05D9\u05D9\u05DD':2,'\u05E9\u05E0\u05D9':2,'\u05E9\u05E0\u05D9\u05D9\u05DD':2,
-              '\u05E9\u05DC\u05D5\u05E9':3,'\u05E9\u05DC\u05D5\u05E9\u05D4':3,'\u05D0\u05E8\u05D1\u05E2':4,'\u05D0\u05E8\u05D1\u05E2\u05D4':4,
-              '\u05D7\u05DE\u05E9':5,'\u05D7\u05DE\u05D9\u05E9\u05D4':5,'\u05E9\u05E9':6,'\u05E9\u05E9\u05D4':6,
-              '\u05E9\u05D1\u05E2':7,'\u05E9\u05D1\u05E2\u05D4':7,'\u05E9\u05DE\u05D5\u05E0\u05D4':8,
-              '\u05EA\u05E9\u05E2':9,'\u05EA\u05E9\u05E2\u05D4':9,'\u05E2\u05E9\u05E8':10};
-      var aw=tl.slice(end).match(/^\s*([\u05D0-\u05EA]+)/);
-      var bw=tl.slice(0,idx).match(/([\u05D0-\u05EA]+)\s*$/);
-      if (aw&&hw[aw[1]]) { qty=hw[aw[1]]; end+=aw[0].length; }
-      else if (bw&&hw[bw[1]]) qty=hw[bw[1]];
+    // Hebrew word after: "אורז שלוש"
+    if (!matched) {
+      var aw = tl.slice(end).match(/^\s*([\u05D0-\u05EA]+)/);
+      if (aw && HW[aw[1]]) { qty=HW[aw[1]]; end+=aw[0].length; matched=true; }
+    }
+
+    // Hebrew word before: "שלוש אורז"
+    if (!matched) {
+      var bw = tl.slice(0,idx).match(/([\u05D0-\u05EA]+)\s*$/);
+      if (bw && HW[bw[1]]) qty=HW[bw[1]];
     }
 
     used.push({start:idx, end:end});
@@ -1126,6 +1164,8 @@ function findItemsInText(text, list) {
 
   return results;
 }
+
+})(); // end IIFE
 
 // Set initial history state so back button can close modals
 history.replaceState({modal:null}, '');
