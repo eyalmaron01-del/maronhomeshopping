@@ -948,14 +948,13 @@ document.addEventListener('keydown',e=>{
 //  VOICE COMMANDS
 // ════════════════════════════════════════════
 (function() {
-
 var active = false;
 var segments = [];
 var silenceTimer = null;
-var restartTimer = null;
+var restarting = false;  // prevents concurrent restarts
 var recog = null;
 
-function makeRecog() {
+function buildRecog() {
   var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SR) return null;
   var r = new SR();
@@ -966,55 +965,55 @@ function makeRecog() {
 
   r.onresult = function(e) {
     var t = e.results[0][0].transcript.trim();
-    if (!t) return;
-    segments.push(t);
-    showVoiceToast('?? ' + t);
-    // Reset silence timer — auto-process 3.5s after last speech
-    clearTimeout(silenceTimer);
-    silenceTimer = setTimeout(doProcess, 3500);
-    // Schedule restart so we keep listening
+    if (t) {
+      segments.push(t);
+      showVoiceToast('\uD83C\uDFA4 ' + t);
+      clearTimeout(silenceTimer);
+      silenceTimer = setTimeout(doProcess, 3500);
+    }
+    // After a result, always restart (one at a time)
     scheduleRestart();
   };
 
   r.onerror = function(e) {
-    if (e.error === 'no-speech' || e.error === 'aborted') {
+    restarting = false;
+    if (!active) return;
+    if (e.error === 'no-speech') {
       scheduleRestart();
-    } else {
-      showVoiceToast('שגיאה: ' + e.error);
+    } else if (e.error !== 'aborted') {
+      showVoiceToast('\u05E9\u05D2\u05D9\u05D0\u05D4: ' + e.error);
       doStop(false);
     }
   };
 
   r.onend = function() {
-    scheduleRestart();
+    restarting = false;
+    if (active) scheduleRestart();
   };
 
   return r;
 }
 
 function scheduleRestart() {
-  if (!active) return;
-  clearTimeout(restartTimer);
-  restartTimer = setTimeout(function() {
-    if (!active) return;
+  if (!active || restarting) return;
+  restarting = true;
+  setTimeout(function() {
+    if (!active) { restarting = false; return; }
     try {
       recog.start();
     } catch(ex) {
-      // recog in bad state — reinit
-      recog = makeRecog();
-      if (recog) {
-        try { recog.start(); } catch(ex2) { doStop(false); }
-      }
+      // InvalidStateError = already started; AbortError = stopping
+      // Either way, onend will fire and retry
+      restarting = false;
     }
-  }, 250);
+  }, 300);
 }
 
 function doStop(andProcess) {
   active = false;
+  restarting = false;
   clearTimeout(silenceTimer);
-  clearTimeout(restartTimer);
   silenceTimer = null;
-  restartTimer = null;
   try { recog.abort(); } catch(ex) {}
   document.getElementById('mic-btn').classList.remove('listening');
   var segs = segments.slice();
@@ -1030,15 +1029,15 @@ window.toggleVoice = function() {
   if (active) {
     doProcess();
   } else {
-    recog = makeRecog();
-    if (!recog) { showVoiceToast('הדפדפן לא תומך'); return; }
+    recog = buildRecog();
+    if (!recog) { showVoiceToast('\u05D4\u05D3\u05E4\u05D3\u05E4\u05DF \u05DC\u05D0 \u05EA\u05D5\u05DE\u05DA'); return; }
     active = true;
+    restarting = false;
     segments = [];
     clearTimeout(silenceTimer);
-    clearTimeout(restartTimer);
     document.getElementById('mic-btn').classList.add('listening');
-    showVoiceToast('?? מאזין... לחץ שוב לסיום');
-    // Auto-cancel after 15s if no speech at all
+    showVoiceToast('\uD83C\uDFA4 \u05DE\u05D0\u05D6\u05D9\u05DF... \u05DC\u05D7\u05E5 \u05E9\u05D5\u05D1 \u05DC\u05E1\u05D9\u05D5\u05DD');
+    // Auto-cancel after 15s if no speech
     setTimeout(function() {
       if (active && segments.length === 0) doStop(false);
     }, 15000);
@@ -1057,115 +1056,76 @@ function showVoiceToast(msg) {
 
 function vcExecute(text) {
   var list = getCurrentList();
-  if (!list) { showVoiceToast('אין רשימה פעילה'); return; }
-
+  if (!list) { showVoiceToast('\u05D0\u05D9\u05DF \u05E8\u05E9\u05D9\u05DE\u05D4 \u05E4\u05E2\u05D9\u05DC\u05D4'); return; }
   var orig = text;
   text = text.toLowerCase().trim();
 
-  // Detect action keyword
-  var action = 'need';
-  var isDel = false;
-  var m;
-  var needRe = /^(חסר|אין|צריך|לקנות)\s+/;
-  var haveRe = /^(יש|יש לי|מצאתי|נמצא)\s+/;
-  var addRe  = /^(הוסף|קנה|להוסיף)\s+/;
-  var delRe  = /^(מחק|הסר|למחוק)\s+/;
+  var action = 'need', isDel = false, m;
+  var needRe = /^(\u05D7\u05E1\u05E8|\u05D0\u05D9\u05DF|\u05E6\u05E8\u05D9\u05DA|\u05DC\u05E7\u05E0\u05D5\u05EA)\s+/;
+  var haveRe = /^(\u05D9\u05E9|\u05D9\u05E9 \u05DC\u05D9|\u05DE\u05E6\u05D0\u05EA\u05D9|\u05E0\u05DE\u05E6\u05D0)\s+/;
+  var addRe  = /^(\u05D4\u05D5\u05E1\u05E3|\u05E7\u05E0\u05D4|\u05DC\u05D4\u05D5\u05E1\u05D9\u05E3)\s+/;
+  var delRe  = /^(\u05DE\u05D7\u05E7|\u05D4\u05E1\u05E8|\u05DC\u05DE\u05D7\u05D5\u05E7)\s+/;
 
-  if      ((m = needRe.exec(text))) { action='need'; text=text.slice(m[0].length); }
-  else if ((m = haveRe.exec(text))) { action='have'; text=text.slice(m[0].length); }
-  else if ((m = addRe.exec(text)))  { action='need'; text=text.slice(m[0].length); }
-  else if ((m = delRe.exec(text)))  { isDel=true;    text=text.slice(m[0].length); }
+  if      ((m=needRe.exec(text))) { action='need'; text=text.slice(m[0].length); }
+  else if ((m=haveRe.exec(text))) { action='have'; text=text.slice(m[0].length); }
+  else if ((m=addRe.exec(text)))  { action='need'; text=text.slice(m[0].length); }
+  else if ((m=delRe.exec(text)))  { isDel=true;    text=text.slice(m[0].length); }
 
   var found = vcFindItems(text, list);
-  if (found.length === 0) { showVoiceToast('לא זיהיתי: ' + orig); return; }
+  if (found.length === 0) { showVoiceToast('\u05DC\u05D0 \u05D6\u05D9\u05D4\u05D9\u05EA\u05D9: ' + orig); return; }
 
   updateCurrentList(function(l) {
     found.forEach(function(f) {
-      if (isDel) {
-        l.items = l.items.filter(function(i){ return i.id !== f.id; });
-        return;
-      }
-      var it = l.items.find(function(i){ return i.id === f.id; });
+      if (isDel) { l.items = l.items.filter(function(i){ return i.id!==f.id; }); return; }
+      var it = l.items.find(function(i){ return i.id===f.id; });
       if (!it) {
-        if (action === 'need') {
-          l.items.push({id:makeId(), name:f.name, category:'אחר', qty:'', note:'', status:'need', needQty:f.qty});
-        }
+        if (action==='need') l.items.push({id:makeId(),name:f.name,category:'\u05D0\u05D7\u05E8',qty:'',note:'',status:'need',needQty:f.qty});
         return;
       }
       it.status = action;
-      if (action === 'need') it.needQty = f.qty;
+      if (action==='need') it.needQty = f.qty;
     });
   });
 
   pausePollingUntil = Date.now() + 6000;
   renderAll();
 
-  var emoji = isDel ? '??️' : action==='need' ? '❌' : '✅';
-  var names = found.map(function(f){ return f.name + (f.qty > 1 ? ' ×'+f.qty : ''); }).join(', ');
+  var emoji = isDel ? '\uD83D\uDDD1\uFE0F' : action==='need' ? '\u274C' : '\u2705';
+  var names = found.map(function(f){ return f.name+(f.qty>1?' \u00D7'+f.qty:''); }).join(', ');
   showVoiceToast(emoji + ' ' + names);
 }
 
 function vcFindItems(text, list) {
-  // Sort longest names first to prevent partial matches
-  var sorted = list.items.slice().sort(function(a,b){ return b.name.length - a.name.length; });
+  var sorted = list.items.slice().sort(function(a,b){ return b.name.length-a.name.length; });
   var tl = text.toLowerCase();
-  var used = [];
-  var results = [];
-
-  var HW = {
-    'אחת':1,'אחד':1,
-    'שתיים':2,'שני':2,'שניים':2,
-    'שלוש':3,'שלושה':3,
-    'ארבע':4,'ארבעה':4,
-    'חמש':5,'חמישה':5,
-    'שש':6,'ששה':6,
-    'שבע':7,'שבעה':7,
-    'שמונה':8,
-    'תשע':9,'תשעה':9,
-    'עשר':10
-  };
+  var used = [], results = [];
+  var HW = {'\u05D0\u05D7\u05EA':1,'\u05D0\u05D7\u05D3':1,'\u05E9\u05EA\u05D9\u05D9\u05DD':2,'\u05E9\u05E0\u05D9':2,'\u05E9\u05E0\u05D9\u05D9\u05DD':2,'\u05E9\u05DC\u05D5\u05E9':3,'\u05E9\u05DC\u05D5\u05E9\u05D4':3,'\u05D0\u05E8\u05D1\u05E2':4,'\u05D0\u05E8\u05D1\u05E2\u05D4':4,'\u05D7\u05DE\u05E9':5,'\u05D7\u05DE\u05D9\u05E9\u05D4':5,'\u05E9\u05E9':6,'\u05E9\u05E9\u05D4':6,'\u05E9\u05D1\u05E2':7,'\u05E9\u05D1\u05E2\u05D4':7,'\u05E9\u05DE\u05D5\u05E0\u05D4':8,'\u05EA\u05E9\u05E2':9,'\u05EA\u05E9\u05E2\u05D4':9,'\u05E2\u05E9\u05E8':10};
 
   sorted.forEach(function(item) {
     var nl = item.name.toLowerCase();
     var idx = tl.indexOf(nl);
-    if (idx === -1) return;
-    // Skip if overlaps with already matched range
-    if (used.some(function(u){ return idx < u.end && idx+nl.length > u.start; })) return;
-
-    var end = idx + nl.length;
-    var qty = 1;
-    var matched = false;
-
-    // Digit after: "אורז 4"
+    if (idx===-1) return;
+    if (used.some(function(u){ return idx<u.end && idx+nl.length>u.start; })) return;
+    var end = idx+nl.length, qty = 1;
     var am = tl.slice(end).match(/^\s*(\d+)/);
-    if (am) { qty=parseInt(am[1],10); end+=am[0].length; matched=true; }
-
-    // Digit before: "4 אורז"
-    if (!matched) {
+    if (am) { qty=parseInt(am[1],10); end+=am[0].length; }
+    else {
       var bm = tl.slice(0,idx).match(/(\d+)\s*$/);
-      if (bm) { qty=parseInt(bm[1],10); matched=true; }
+      if (bm) { qty=parseInt(bm[1],10); }
+      else {
+        var aw = tl.slice(end).match(/^\s*([\u05D0-\u05EA]+)/);
+        var bw = tl.slice(0,idx).match(/([\u05D0-\u05EA]+)\s*$/);
+        if (aw&&HW[aw[1]]) { qty=HW[aw[1]]; end+=aw[0].length; }
+        else if (bw&&HW[bw[1]]) qty=HW[bw[1]];
+      }
     }
-
-    // Hebrew word after: "אורז שלוש"
-    if (!matched) {
-      var aw = tl.slice(end).match(/^\s*([\u05D0-\u05EA]+)/);
-      if (aw && HW[aw[1]]) { qty=HW[aw[1]]; end+=aw[0].length; matched=true; }
-    }
-
-    // Hebrew word before: "שלוש אורז"
-    if (!matched) {
-      var bw = tl.slice(0,idx).match(/([\u05D0-\u05EA]+)\s*$/);
-      if (bw && HW[bw[1]]) qty=HW[bw[1]];
-    }
-
-    used.push({start:idx, end:end});
-    results.push({id:item.id, name:item.name, qty:qty});
+    used.push({start:idx,end:end});
+    results.push({id:item.id,name:item.name,qty:qty});
   });
-
   return results;
 }
 
-})(); // end IIFE
+})();
 
 // Set initial history state so back button can close modals
 history.replaceState({modal:null}, '');
