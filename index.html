@@ -160,7 +160,7 @@ main{padding:12px;max-width:680px;margin:0 auto;padding-bottom:90px}
 <div class="category-tabs" id="category-tabs"></div>
 <main id="items-container"></main>
 
-<button class="mic-btn" id="mic-btn" onclick="vcToggle()">🎤</button>
+<button class="mic-btn" id="mic-btn" onclick="vcToggle()">&#x1F3A4;</button>
 <div class="vtag" id="vtag"></div>
 <button class="add-fab" onclick="openAddModal()"><span class="plus">+</span> &#x05D4;&#x05D5;&#x05E1;&#x05E4;&#x05EA; &#x05E4;&#x05E8;&#x05D9;&#x05D8;</button>
 <div class="modal-overlay" id="item-modal" onclick="closeModalOnOverlay(event,'item-modal')">
@@ -708,7 +708,7 @@ function openHistoryModal(){
       stats.innerHTML='<div style="color:var(--green)">✓ '+have+'</div><div style="color:var(--red)">✕ '+need+'</div>';
       right.appendChild(stats);
       if(!isCurrent){
-        var delBtn=document.createElement('button'); delBtn.className='del-list-btn'; delBtn.textContent='🗑️';
+        var delBtn=document.createElement('button'); delBtn.className='del-list-btn'; delBtn.textContent='\uD83D\uDDD1\uFE0F';
         delBtn.onclick=(function(id){return function(e){deleteList(id,e);};})(list.id);
         right.appendChild(delBtn);
       }
@@ -1035,7 +1035,7 @@ function vcExecute(text) {
   pausePollingUntil = Date.now() + 6000;
   renderAll();
 
-  var emoji = isDel ? '🗑️' : action === 'need' ? '❌' : '✅';
+  var emoji = isDel ? '\uD83D\uDDD1\uFE0F' : action === 'need' ? '❌' : '✅';
   var label = found.map(function(f){ return f.name + (f.qty > 1 ? ' ×' + f.qty : ''); }).join(', ');
   vcMsg(emoji + ' ' + label, 3000);
 }
@@ -1082,7 +1082,7 @@ function _vcStart() {
         var t = e.results[i][0].transcript.trim();
         if (t) {
           _vcSegs.push(t);
-          vcMsg('🎤 ' + t, 5000);
+          vcMsg('\uD83C\uDFA4 ' + t, 5000);
           // Reset silence timer on each new final result
           clearTimeout(_vcSil);
           _vcSil = setTimeout(function(){ _vcStop(true); }, 3000);
@@ -1090,7 +1090,7 @@ function _vcStart() {
       } else {
         // Show interim
         var interim = e.results[i][0].transcript.trim();
-        if (interim) vcMsg('🎤 ' + interim + '...', 5000);
+        if (interim) vcMsg('\uD83C\uDFA4 ' + interim + '...', 5000);
       }
     }
   };
@@ -1111,7 +1111,7 @@ function _vcStart() {
   _vcSegs = [];
   clearTimeout(_vcSil);
   document.getElementById('mic-btn').classList.add('on');
-  vcMsg('🎤 מאזין... לחץ שוב לסיום', 20000);
+  vcMsg('\uD83C\uDFA4 מאזין... לחץ שוב לסיום', 20000);
 
   // Auto-cancel after 20s with zero speech
   setTimeout(function(){
