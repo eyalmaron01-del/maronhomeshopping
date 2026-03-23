@@ -124,7 +124,7 @@ main{padding:12px;max-width:680px;margin:0 auto;padding-bottom:90px}
 .move-select:focus{border-color:var(--accent)}
 @media(max-width:480px){.item-name{font-size:14px}.status-btn{width:38px;height:30px;font-size:15px}}
 
-  .mic-btn{position:fixed;bottom:22px;left:22px;width:54px;height:54px;border-radius:50%;background:var(--text);border:none;color:white;font-size:22px;cursor:pointer;box-shadow:var(--shadow-lg);z-index:200;display:flex;align-items:center;justify-content:center;transition:background 0.2s,transform 0.2s}
+  .mic-btn{position:fixed;bottom:22px;right:22px;display:none;width:54px;height:54px;border-radius:50%;background:var(--text);border:none;color:white;font-size:22px;cursor:pointer;box-shadow:var(--shadow-lg);z-index:250;display:flex;align-items:center;justify-content:center;transition:background 0.2s,transform 0.2s}
   .mic-btn.on{background:var(--red);transform:scale(1.08)}
   .vtag{position:fixed;top:80px;left:50%;transform:translateX(-50%);background:rgba(26,23,20,0.88);color:#fff;padding:9px 20px;border-radius:40px;font-size:14px;font-weight:600;z-index:500;pointer-events:none;white-space:nowrap;max-width:88vw;overflow:hidden;text-overflow:ellipsis;opacity:0;transition:opacity 0.2s}
   .vtag.show{opacity:1}
@@ -458,7 +458,11 @@ function createList(name, withDefaults, copyFromCurrent) {
 function hideWelcome() {
   const ws = document.getElementById('welcome-screen');
   ws.classList.add('hidden');
-  setTimeout(()=>ws.style.display='none', 400);
+  setTimeout(function(){
+    ws.style.display='none';
+    var mb = document.getElementById('mic-btn');
+    if (mb) mb.style.display='flex';
+  }, 400);
 }
 
 function confirmNewList() {
